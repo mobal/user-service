@@ -37,12 +37,12 @@ def register_user(body: RegistrationRequest):
     status_code=status.HTTP_204_NO_CONTENT,
 )
 @pre_authorize(roles=["root"])
-def delete_user(user_id: int):
+def delete_user(user_id: str):
     user_service.delete_user_by_id(user_id)
 
 
 @router.get("/users/{user_id}", dependencies=[Depends(jwt_bearer)])
-def get_user_by_id(user_id: int):
+def get_user_by_id(user_id: str):
     user_service.get_user_by_id(user_id)
 
 
@@ -66,5 +66,5 @@ def get_users(filters: Annotated[UserFilterParams, Query()]) -> UsersPage:
     status_code=status.HTTP_204_NO_CONTENT,
 )
 @pre_authorize(roles=["root"])
-def update_user(user_id: int, body: UpdateUserRequest) -> None:
+def update_user(user_id: str, body: UpdateUserRequest) -> None:
     user_service.update_user_by_id(user_id, body.model_dump(exclude_none=True))
