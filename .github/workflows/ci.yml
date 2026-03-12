@@ -1,0 +1,73 @@
+name: Build and test
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    env:
+      Coverage_File: coverage.xml
+    continue-on-error: false
+    steps:
+
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version-file: ".python-version"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        cache-dependency-glob: "uv.lock"
+        enable-cache: true
+
+    - name: Install project dependencies
+      run: uv sync --locked
+
+    - name: Run Bandit security scanner
+      run: |
+        uv run -m bandit --severity-level medium --confidence-level high -r app/ -vvv
+
+    - name: Run ruff linter
+      run: |
+        uv run ruff check app/ tests/ --statistics
+        uv run ruff format --check app/ tests/
+
+    - name: Running tests with Pytest and generate coverage
+      run: |
+        uv run -m pytest --cov-report=term --cov-report=xml:$Coverage_File --cov=app
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v5
+      if: success()
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+    - name: SonarQube Scan
+      uses: SonarSource/sonarqube-scan-action@v6
+      with:
+        args: >
+          -Dsonar.language=python
+          -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+          -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+          -Dsonar.python.coverage.reportPaths=coverage.xml
+          -Dsonar.sources=app/
+          -Dsonar.tests=tests/
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
