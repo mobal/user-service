@@ -1,8 +1,13 @@
+from typing import Annotated
+
 from aws_lambda_powertools.logging import Logger
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app import jwt_bearer
+from app.models.request.filters import UserFilterParams
 from app.models.request.register import RegistrationRequest
+from app.models.request.update_user import UpdateUserRequest
+from app.models.response.users_page import UsersPage
 from app.security.authorization import pre_authorize
 from app.services.user_service import UserService
 
@@ -43,8 +48,16 @@ def get_user_by_id(user_id: int):
 
 @router.get("/users", dependencies=[Depends(jwt_bearer)])
 @pre_authorize(roles=["root"])
-def get_users() -> list:
-    return user_service.get_users()
+def get_users(filters: Annotated[UserFilterParams, Query()]) -> UsersPage:
+    filter_values = filters.model_dump(
+        exclude_none=True,
+        exclude={"limit", "next_key"},
+    )
+    return user_service.get_users(
+        filters=filter_values or None,
+        limit=filters.limit,
+        next_key=filters.next_key,
+    )
 
 
 @router.put(
@@ -53,6 +66,5 @@ def get_users() -> list:
     status_code=status.HTTP_204_NO_CONTENT,
 )
 @pre_authorize(roles=["root"])
-def update_user(user_id: int) -> None:
-    # Update user logic to be implemented
-    pass
+def update_user(user_id: int, body: UpdateUserRequest) -> None:
+    user_service.update_user_by_id(user_id, body.model_dump(exclude_none=True))
