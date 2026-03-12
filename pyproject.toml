@@ -22,6 +22,7 @@ dependencies = [
 dev = [
     "aws-lambda-powertools[validation]>=3.24.0",
     "bandit>=1.9.3",
+    "httpx>=0.28.1",
     "moto>=5.1.21",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
