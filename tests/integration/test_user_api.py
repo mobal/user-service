@@ -44,6 +44,32 @@ class TestUserAPI:
             payload, os.getenv("JWT_SECRET_SSM_PARAM_VALUE"), algorithm="HS256"
         )
 
+    @pytest.fixture
+    def expired_root_token(self) -> str:
+        now = datetime.now(UTC)
+        payload = {
+            "exp": int((now - timedelta(minutes=5)).timestamp()),
+            "iat": int((now - timedelta(hours=1)).timestamp()),
+            "jti": str(uuid.uuid4()),
+            "sub": "expired-root-user",
+            "user": {"roles": ["root"]},
+        }
+        return jwt.encode(
+            payload, os.getenv("JWT_SECRET_SSM_PARAM_VALUE"), algorithm="HS256"
+        )
+
+    @pytest.fixture
+    def invalid_signature_token(self) -> str:
+        now = datetime.now(UTC)
+        payload = {
+            "exp": int((now + timedelta(hours=1)).timestamp()),
+            "iat": int(now.timestamp()),
+            "jti": str(uuid.uuid4()),
+            "sub": "root-user-invalid-signature",
+            "user": {"roles": ["root"]},
+        }
+        return jwt.encode(payload, "wrong-signature-secret", algorithm="HS256")
+
     # GET /v1/healthcheck
 
     def test_healthcheck_returns_200(self, test_client: TestClient):
@@ -116,6 +142,70 @@ class TestUserAPI:
 
         assert response.status_code == 422
 
+    def test_register_user_returns_403_for_invalid_signature_token(
+        self, test_client: TestClient, invalid_signature_token: str
+    ):
+        response = test_client.post(
+            "/v1/users",
+            json={
+                "email": "newuser@squarelabs.hu",
+                "username": "newuser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {invalid_signature_token}"},
+        )
+
+        assert response.status_code == 403
+
+    def test_register_user_returns_403_for_expired_token(
+        self, test_client: TestClient, expired_root_token: str
+    ):
+        response = test_client.post(
+            "/v1/users",
+            json={
+                "email": "newuser@squarelabs.hu",
+                "username": "newuser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {expired_root_token}"},
+        )
+
+        assert response.status_code == 403
+
+    def test_register_user_returns_403_for_malformed_token(
+        self, test_client: TestClient
+    ):
+        response = test_client.post(
+            "/v1/users",
+            json={
+                "email": "newuser@squarelabs.hu",
+                "username": "newuser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": "Bearer not-a-valid-jwt"},
+        )
+
+        assert response.status_code == 403
+
+    def test_register_user_returns_403_for_invalid_authorization_scheme(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.post(
+            "/v1/users",
+            json={
+                "email": "newuser@squarelabs.hu",
+                "username": "newuser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Basic {root_token}"},
+        )
+
+        assert response.status_code == 403
+
     # DELETE /v1/users/{user_id}
 
     def test_successfully_delete_user(
@@ -161,6 +251,20 @@ class TestUserAPI:
         self, test_client: TestClient, user: User
     ):
         response = test_client.get(f"/v1/users/{user.id}")
+
+        assert response.status_code == 403
+
+    def test_successfully_get_user_by_id_with_token_query_param(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        response = test_client.get(f"/v1/users/{user.id}?token={root_token}")
+
+        assert response.status_code == 200
+
+    def test_get_user_by_id_returns_403_with_invalid_token_query_param(
+        self, test_client: TestClient, user: User
+    ):
+        response = test_client.get(f"/v1/users/{user.id}?token=not-a-valid-jwt")
 
         assert response.status_code == 403
 
