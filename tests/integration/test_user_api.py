@@ -24,7 +24,7 @@ class TestUserAPI:
             "iat": int(now.timestamp()),
             "jti": str(uuid.uuid4()),
             "sub": "root-user",
-            "user": {"roles": ["root"]},
+            "user": {"roles": ["users:read", "users:write"]},
         }
         return jwt.encode(
             payload, os.getenv("JWT_SECRET_SSM_PARAM_VALUE"), algorithm="HS256"
@@ -38,7 +38,7 @@ class TestUserAPI:
             "iat": int(now.timestamp()),
             "jti": str(uuid.uuid4()),
             "sub": "regular-user",
-            "user": {"roles": ["user"]},
+            "user": {"roles": []},
         }
         return jwt.encode(
             payload, os.getenv("JWT_SECRET_SSM_PARAM_VALUE"), algorithm="HS256"
@@ -70,16 +70,6 @@ class TestUserAPI:
         }
         return jwt.encode(payload, "wrong-signature-secret", algorithm="HS256")
 
-    # GET /v1/healthcheck
-
-    def test_healthcheck_returns_200(self, test_client: TestClient):
-        response = test_client.get("/v1/healthcheck")
-
-        assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
-
-    # POST /v1/users
-
     def test_successfully_register_user(self, test_client: TestClient, root_token: str):
         response = test_client.post(
             "/v1/users",
@@ -110,7 +100,7 @@ class TestUserAPI:
 
         assert response.status_code == 403
 
-    def test_register_user_returns_403_without_root_role(
+    def test_register_user_returns_403_without_write_role(
         self, test_client: TestClient, user_token: str
     ):
         response = test_client.post(
@@ -206,8 +196,6 @@ class TestUserAPI:
 
         assert response.status_code == 403
 
-    # DELETE /v1/users/{user_id}
-
     def test_successfully_delete_user(
         self, test_client: TestClient, root_token: str, user: User
     ):
@@ -225,7 +213,7 @@ class TestUserAPI:
 
         assert response.status_code == 403
 
-    def test_delete_user_returns_403_without_root_role(
+    def test_delete_user_returns_403_without_write_role(
         self, test_client: TestClient, user_token: str, user: User
     ):
         response = test_client.delete(
@@ -234,8 +222,6 @@ class TestUserAPI:
         )
 
         assert response.status_code == 403
-
-    # GET /v1/users/{user_id}
 
     def test_successfully_get_user_by_id(
         self, test_client: TestClient, root_token: str, user: User
@@ -268,8 +254,6 @@ class TestUserAPI:
 
         assert response.status_code == 403
 
-    # GET /v1/users
-
     def test_successfully_get_users(
         self, test_client: TestClient, root_token: str, user: User
     ):
@@ -287,7 +271,7 @@ class TestUserAPI:
 
         assert response.status_code == 403
 
-    def test_get_users_returns_403_without_root_role(
+    def test_get_users_returns_403_without_read_role(
         self, test_client: TestClient, user_token: str
     ):
         response = test_client.get(
@@ -308,8 +292,6 @@ class TestUserAPI:
         assert response.status_code == 200
         body = response.json()
         assert "items" in body
-
-    # PUT /v1/users/{user_id}
 
     def test_successfully_update_user(
         self, test_client: TestClient, root_token: str, user: User
@@ -332,7 +314,7 @@ class TestUserAPI:
 
         assert response.status_code == 403
 
-    def test_update_user_returns_403_without_root_role(
+    def test_update_user_returns_403_without_write_role(
         self, test_client: TestClient, user_token: str, user: User
     ):
         response = test_client.put(
