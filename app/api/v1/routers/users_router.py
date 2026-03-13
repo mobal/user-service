@@ -24,7 +24,9 @@ def healthcheck() -> dict[str, str]:
 
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 @pre_authorize(roles=["root"])
-def register_user(body: RegistrationRequest, token: JWTToken = Depends(jwt_bearer)):
+def register_user(
+    body: RegistrationRequest, token: Annotated[JWTToken, Depends(jwt_bearer)]
+):
     user_id = user_service.create_user(
         body.email, body.password, body.username, body.display_name
     )
@@ -37,12 +39,12 @@ def register_user(body: RegistrationRequest, token: JWTToken = Depends(jwt_beare
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 @pre_authorize(roles=["root"])
-def delete_user(user_id: str, token: JWTToken = Depends(jwt_bearer)):
+def delete_user(user_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
     user_service.delete_user_by_id(user_id)
 
 
 @router.get("/users/{user_id}")
-def get_user_by_id(user_id: str, token: JWTToken = Depends(jwt_bearer)):
+def get_user_by_id(user_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
     user_service.get_user_by_id(user_id)
 
 
@@ -50,7 +52,7 @@ def get_user_by_id(user_id: str, token: JWTToken = Depends(jwt_bearer)):
 @pre_authorize(roles=["root"])
 def get_users(
     filters: Annotated[UserFilterParams, Query()],
-    token: JWTToken = Depends(jwt_bearer),
+    token: Annotated[JWTToken, Depends(jwt_bearer)],
 ) -> UsersPage:
     filter_values = filters.model_dump(
         exclude_none=True,
@@ -66,6 +68,8 @@ def get_users(
 @router.put("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 @pre_authorize(roles=["root"])
 def update_user(
-    user_id: str, body: UpdateUserRequest, token: JWTToken = Depends(jwt_bearer)
+    user_id: str,
+    body: UpdateUserRequest,
+    token: Annotated[JWTToken, Depends(jwt_bearer)],
 ) -> None:
     user_service.update_user_by_id(user_id, body.model_dump(exclude_none=True))
