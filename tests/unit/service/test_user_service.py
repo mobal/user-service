@@ -6,7 +6,7 @@ from datetime import datetime
 import pytest
 from argon2 import PasswordHasher
 
-from app.models.response.users_page import UsersPage
+from app.exceptions import InvalidPaginationKeyException
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.user_service import UserService
@@ -52,8 +52,16 @@ class TestUserService:
     def test_decode_next_key_raises_value_error_for_invalid_payload(self):
         invalid_next_key = urlsafe_b64encode(json.dumps(["invalid"]).encode()).decode()
 
-        with pytest.raises(ValueError, match="Invalid pagination key"):
+        with pytest.raises(
+            InvalidPaginationKeyException, match="Invalid pagination key"
+        ):
             UserService._decode_next_key(invalid_next_key)
+
+    def test_decode_next_key_raises_value_error_for_malformed_key(self):
+        with pytest.raises(
+            InvalidPaginationKeyException, match="Invalid pagination key"
+        ):
+            UserService._decode_next_key("asdasdasd")
 
     def test_successfully_create_user(self, mocker, user_service: UserService):
         mocker.patch.object(UserRepository, "get_user_by_email", return_value=None)
@@ -154,7 +162,7 @@ class TestUserService:
             next_key="eyJpZCI6ImN1cnJlbnQtcGFnZSJ9",
         )
 
-        assert response == UsersPage(items=[user], next_key="eyJpZCI6Im5leHQtcGFnZSJ9")
+        assert response == ([user], "eyJpZCI6Im5leHQtcGFnZSJ9")
         filter_users_mock.assert_called_once_with(
             filters={"username": user.username},
             limit=10,
@@ -170,7 +178,7 @@ class TestUserService:
 
         response = user_service.get_users(filters=None, limit=10, next_key=None)
 
-        assert response == UsersPage(items=[user], next_key=None)
+        assert response == ([user], None)
         get_users_mock.assert_called_once_with(
             limit=10,
             exclusive_start_key=None,

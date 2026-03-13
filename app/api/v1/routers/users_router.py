@@ -7,6 +7,7 @@ from app.jwt_bearer import JWTBearer, JWTToken
 from app.models.request.filters import UserFilterParams
 from app.models.request.register import RegistrationRequest
 from app.models.request.update_user import UpdateUserRequest
+from app.models.response.user import UserResponse
 from app.models.response.users_page import UsersPage
 from app.security.authorization import pre_authorize
 from app.services.user_service import UserService
@@ -41,7 +42,9 @@ def delete_user(user_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
 @router.get("/users/{user_id}")
 @pre_authorize(roles=["users:read"])
 def get_user_by_id(user_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
-    user_service.get_user_by_id(user_id)
+    user = user_service.get_user_by_id(user_id)
+
+    return UserResponse(**user.model_dump(exclude={"password", "deleted_at"}))
 
 
 @router.get("/users")
@@ -54,10 +57,19 @@ def get_users(
         exclude_none=True,
         exclude={"limit", "next_key"},
     )
-    return user_service.get_users(
+
+    users, next_key = user_service.get_users(
         filters=filter_values or None,
         limit=filters.limit,
         next_key=filters.next_key,
+    )
+
+    return UsersPage(
+        items=[
+            UserResponse(**user.model_dump(exclude={"password", "deleted_at"}))
+            for user in users
+        ],
+        next_key=next_key,
     )
 
 

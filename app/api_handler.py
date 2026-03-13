@@ -1,6 +1,5 @@
 import uvicorn
 from aws_lambda_powertools.logging import Logger
-from botocore.exceptions import BotoCoreError
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -35,9 +34,8 @@ async def health_check():
     return {"status": "healthy"}
 
 
-@app.exception_handler(BotoCoreError)
 @app.exception_handler(Exception)
-def botocore_error_handler(request: Request, error: BotoCoreError) -> JSONResponse:
+def botocore_error_handler(request: Request, error: Exception) -> JSONResponse:
     logger.exception(error)
     error_message = str(error) if settings.debug else "Internal Server Error"
     status_code = status.HTTP_500_INTERNAL_SERVER_ERROR

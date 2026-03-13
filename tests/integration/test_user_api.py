@@ -281,6 +281,16 @@ class TestUserAPI:
 
         assert response.status_code == 403
 
+    def test_get_users_returns_400_for_invalid_next_key(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.get(
+            "/v1/users?nextKey=asdasdasd",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == 400
+
     def test_successfully_get_users_with_username_filter(
         self, test_client: TestClient, root_token: str, user: User
     ):

@@ -1,7 +1,9 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import ConfigDict, EmailStr, Field
+
+from app.models.models import CamelModel
 
 
-class UserFilterParams(BaseModel):
+class UserFilterParams(CamelModel):
     model_config = ConfigDict(extra="forbid")
 
     username: str | None = None
