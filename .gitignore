@@ -1,5 +1,5 @@
-# Created by https://www.toptal.com/developers/gitignore/api/node,macos,dotenv,python,archives,sonarqube,terraform,pycharm+all,visualstudiocode
-# Edit at https://www.toptal.com/developers/gitignore?templates=node,macos,dotenv,python,archives,sonarqube,terraform,pycharm+all,visualstudiocode
+# Created by https://www.toptal.com/developers/gitignore/api/node,macos,dotenv,python,archives,sonarqube,terraform,pycharm+all,visualstudiocode,terragrunt
+# Edit at https://www.toptal.com/developers/gitignore?templates=node,macos,dotenv,python,archives,sonarqube,terraform,pycharm+all,visualstudiocode,terragrunt
 
 ### Archives ###
 # It's better to unpack these files and commit the raw source because
@@ -514,6 +514,14 @@ override.tf.json
 .terraformrc
 terraform.rc
 
+### Terragrunt ###
+# terragrunt cache directories
+**/.terragrunt-cache/*
+
+# Terragrunt debug output file (when using `--terragrunt-debug` option)
+# See: https://terragrunt.gruntwork.io/docs/reference/cli-options/#terragrunt-debug
+terragrunt-debug.tfvars.json
+
 ### VisualStudioCode ###
 .vscode/*
 !.vscode/settings.json
@@ -533,4 +541,4 @@ terraform.rc
 .history
 .ionide
 
-# End of https://www.toptal.com/developers/gitignore/api/node,macos,dotenv,python,archives,sonarqube,terraform,pycharm+all,visualstudiocode
+# End of https://www.toptal.com/developers/gitignore/api/node,macos,dotenv,python,archives,sonarqube,terraform,pycharm+all,visualstudiocode,terragrunt
