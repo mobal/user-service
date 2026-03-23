@@ -72,7 +72,7 @@ class TestUserAPI:
 
     def test_successfully_register_user(self, test_client: TestClient, root_token: str):
         response = test_client.post(
-            "/v1/users",
+            "/api/v1/users",
             json={
                 "email": "newuser@squarelabs.hu",
                 "username": "newuser",
@@ -89,7 +89,7 @@ class TestUserAPI:
 
     def test_register_user_returns_403_without_token(self, test_client: TestClient):
         response = test_client.post(
-            "/v1/users",
+            "/api/v1/users",
             json={
                 "email": "newuser@squarelabs.hu",
                 "username": "newuser",
@@ -104,7 +104,7 @@ class TestUserAPI:
         self, test_client: TestClient, user_token: str
     ):
         response = test_client.post(
-            "/v1/users",
+            "/api/v1/users",
             json={
                 "email": "newuser@squarelabs.hu",
                 "username": "newuser",
@@ -120,7 +120,7 @@ class TestUserAPI:
         self, test_client: TestClient, root_token: str
     ):
         response = test_client.post(
-            "/v1/users",
+            "/api/v1/users",
             json={
                 "email": "newuser@squarelabs.hu",
                 "username": "newuser",
@@ -136,7 +136,7 @@ class TestUserAPI:
         self, test_client: TestClient, invalid_signature_token: str
     ):
         response = test_client.post(
-            "/v1/users",
+            "/api/v1/users",
             json={
                 "email": "newuser@squarelabs.hu",
                 "username": "newuser",
@@ -152,7 +152,7 @@ class TestUserAPI:
         self, test_client: TestClient, expired_root_token: str
     ):
         response = test_client.post(
-            "/v1/users",
+            "/api/v1/users",
             json={
                 "email": "newuser@squarelabs.hu",
                 "username": "newuser",
@@ -168,7 +168,7 @@ class TestUserAPI:
         self, test_client: TestClient
     ):
         response = test_client.post(
-            "/v1/users",
+            "/api/v1/users",
             json={
                 "email": "newuser@squarelabs.hu",
                 "username": "newuser",
@@ -184,7 +184,7 @@ class TestUserAPI:
         self, test_client: TestClient, root_token: str
     ):
         response = test_client.post(
-            "/v1/users",
+            "/api/v1/users",
             json={
                 "email": "newuser@squarelabs.hu",
                 "username": "newuser",
@@ -200,7 +200,7 @@ class TestUserAPI:
         self, test_client: TestClient, root_token: str, user: User
     ):
         response = test_client.delete(
-            f"/v1/users/{user.id}",
+            f"/api/v1/users/{user.id}",
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
@@ -209,7 +209,7 @@ class TestUserAPI:
     def test_delete_user_returns_403_without_token(
         self, test_client: TestClient, user: User
     ):
-        response = test_client.delete(f"/v1/users/{user.id}")
+        response = test_client.delete(f"/api/v1/users/{user.id}")
 
         assert response.status_code == 403
 
@@ -217,7 +217,7 @@ class TestUserAPI:
         self, test_client: TestClient, user_token: str, user: User
     ):
         response = test_client.delete(
-            f"/v1/users/{user.id}",
+            f"/api/v1/users/{user.id}",
             headers={"Authorization": f"Bearer {user_token}"},
         )
 
@@ -227,7 +227,7 @@ class TestUserAPI:
         self, test_client: TestClient, root_token: str, user: User
     ):
         response = test_client.get(
-            f"/v1/users/{user.id}",
+            f"/api/v1/users/{user.id}",
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
@@ -236,21 +236,21 @@ class TestUserAPI:
     def test_get_user_by_id_returns_403_without_token(
         self, test_client: TestClient, user: User
     ):
-        response = test_client.get(f"/v1/users/{user.id}")
+        response = test_client.get(f"/api/v1/users/{user.id}")
 
         assert response.status_code == 403
 
     def test_successfully_get_user_by_id_with_token_query_param(
         self, test_client: TestClient, root_token: str, user: User
     ):
-        response = test_client.get(f"/v1/users/{user.id}?token={root_token}")
+        response = test_client.get(f"/api/v1/users/{user.id}?token={root_token}")
 
         assert response.status_code == 200
 
     def test_get_user_by_id_returns_403_with_invalid_token_query_param(
         self, test_client: TestClient, user: User
     ):
-        response = test_client.get(f"/v1/users/{user.id}?token=not-a-valid-jwt")
+        response = test_client.get(f"/api/v1/users/{user.id}?token=not-a-valid-jwt")
 
         assert response.status_code == 403
 
@@ -258,7 +258,7 @@ class TestUserAPI:
         self, test_client: TestClient, root_token: str, user: User
     ):
         response = test_client.get(
-            "/v1/users",
+            "/api/v1/users",
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
@@ -267,7 +267,7 @@ class TestUserAPI:
         assert "items" in body
 
     def test_get_users_returns_403_without_token(self, test_client: TestClient):
-        response = test_client.get("/v1/users")
+        response = test_client.get("/api/v1/users")
 
         assert response.status_code == 403
 
@@ -275,7 +275,7 @@ class TestUserAPI:
         self, test_client: TestClient, user_token: str
     ):
         response = test_client.get(
-            "/v1/users",
+            "/api/v1/users",
             headers={"Authorization": f"Bearer {user_token}"},
         )
 
@@ -285,7 +285,7 @@ class TestUserAPI:
         self, test_client: TestClient, root_token: str
     ):
         response = test_client.get(
-            "/v1/users?nextKey=asdasdasd",
+            "/api/v1/users?nextKey=asdasdasd",
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
@@ -295,7 +295,7 @@ class TestUserAPI:
         self, test_client: TestClient, root_token: str, user: User
     ):
         response = test_client.get(
-            f"/v1/users?username={user.username}",
+            f"/api/v1/users?username={user.username}",
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
@@ -307,7 +307,7 @@ class TestUserAPI:
         self, test_client: TestClient, root_token: str, user: User
     ):
         response = test_client.put(
-            f"/v1/users/{user.id}",
+            f"/api/v1/users/{user.id}",
             json={"displayName": "Updated Name"},
             headers={"Authorization": f"Bearer {root_token}"},
         )
@@ -318,7 +318,7 @@ class TestUserAPI:
         self, test_client: TestClient, user: User
     ):
         response = test_client.put(
-            f"/v1/users/{user.id}",
+            f"/api/v1/users/{user.id}",
             json={"displayName": "Updated Name"},
         )
 
@@ -328,7 +328,7 @@ class TestUserAPI:
         self, test_client: TestClient, user_token: str, user: User
     ):
         response = test_client.put(
-            f"/v1/users/{user.id}",
+            f"/api/v1/users/{user.id}",
             json={"displayName": "Updated Name"},
             headers={"Authorization": f"Bearer {user_token}"},
         )
