@@ -44,7 +44,7 @@ def delete_user(user_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
 def get_user_by_id(user_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
     user = user_service.get_user_by_id(user_id)
 
-    return UserResponse(**user.model_dump(exclude={"password", "deleted_at"}))
+    return UserResponse(**user.model_dump())
 
 
 @router.get("/users")
@@ -65,10 +65,7 @@ def get_users(
     )
 
     return UsersPage(
-        items=[
-            UserResponse(**user.model_dump(exclude={"password", "deleted_at"}))
-            for user in users
-        ],
+        items=[UserResponse(**user.model_dump()) for user in users],
         next_key=next_key,
     )
 
