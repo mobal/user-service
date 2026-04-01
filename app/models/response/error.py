@@ -1,4 +1,3 @@
-import time
 from collections.abc import Sequence
 
 from app.models.models import CamelModel
@@ -7,7 +6,7 @@ from app.models.models import CamelModel
 class ErrorResponse(CamelModel):
     status: int
     error: str
-    timestamp: int = int(time.time())
+    timestamp: int
 
 
 class ValidationErrorResponse(ErrorResponse):

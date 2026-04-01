@@ -1,3 +1,5 @@
+import time
+
 import uvicorn
 from aws_lambda_powertools.logging import Logger
 from fastapi import FastAPI, HTTPException, Request, status
@@ -41,9 +43,9 @@ def botocore_error_handler(request: Request, error: Exception) -> JSONResponse:
     status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
 
     return JSONResponse(
-        content=ErrorResponse(status=status_code, error=error_message).model_dump(
-            by_alias=True
-        ),
+        content=ErrorResponse(
+            status=status_code, error=error_message, timestamp=int(time.time())
+        ).model_dump(by_alias=True),
         status_code=status_code,
     )
 
@@ -53,9 +55,9 @@ def http_exception_handler(request: Request, error: HTTPException) -> JSONRespon
     logger.exception(error)
 
     return JSONResponse(
-        content=ErrorResponse(status=error.status_code, error=error.detail).model_dump(
-            by_alias=True
-        ),
+        content=ErrorResponse(
+            status=error.status_code, error=error.detail, timestamp=int(time.time())
+        ).model_dump(by_alias=True),
         status_code=error.status_code,
     )
 
@@ -72,6 +74,7 @@ def request_validation_error_handler(
             status=status_code,
             error="Validation Error",
             errors=jsonable_encoder(error.errors()),
+            timestamp=int(time.time()),
         ).model_dump(by_alias=True),
         status_code=status_code,
     )
