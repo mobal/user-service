@@ -80,6 +80,7 @@ class HTTPBearer(FastAPIHTTPBearer):
 class JWTBearer:
     def __init__(self, auto_error: bool = True):
         self._auto_error = auto_error
+        self.decoded_token: JWTToken | None = None
 
     def __call__(self, request: Request) -> JWTToken | None:
         credentials = HTTPBearer(self._auto_error).__call__(request)
@@ -101,7 +102,9 @@ class JWTBearer:
 
     def _validate_token(self, token: str) -> bool:
         try:
-            _ = JWTToken(**jwt.decode(token, settings.jwt_secret, algorithms=["HS256"]))
+            self.decoded_token = JWTToken(
+                **jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+            )
 
             return True
         except DecodeError as err:
@@ -109,4 +112,5 @@ class JWTBearer:
         except ExpiredSignatureError as err:
             logger.exception(f"Expired signature {err=}")
 
+        self.decoded_token = None
         return False

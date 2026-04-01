@@ -1,9 +1,14 @@
+import json
 import uuid
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from binascii import Error as BinasciiError
 from datetime import UTC, datetime
+from typing import Any
 
 from argon2 import PasswordHasher
 from aws_lambda_powertools import Logger
 
+from app.exceptions import InvalidPaginationKeyException, UserNotFoundException
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 
@@ -13,6 +18,36 @@ class UserService:
         self._logger = Logger()
         self._password_hasher = PasswordHasher()
         self._user_repository = UserRepository()
+
+    def _filter_users(self, filters: dict[str, str]) -> list[User]:
+        users, _ = self._user_repository.filter_users(filters=filters, limit=100)
+        return users
+
+    @staticmethod
+    def _encode_next_key(next_key: dict[str, Any] | None) -> str | None:
+        if not next_key:
+            return None
+        payload = json.dumps(next_key, separators=(",", ":")).encode("utf-8")
+        return urlsafe_b64encode(payload).decode("utf-8")
+
+    @staticmethod
+    def _decode_next_key(next_key: str | None) -> dict[str, Any] | None:
+        if not next_key:
+            return None
+
+        try:
+            key = json.loads(
+                urlsafe_b64decode(
+                    (next_key + ("=" * (-len(next_key) % 4))).encode("utf-8")
+                ).decode("utf-8")
+            )
+        except (BinasciiError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise InvalidPaginationKeyException("Invalid pagination key") from error
+
+        if not isinstance(key, dict):
+            raise InvalidPaginationKeyException("Invalid pagination key")
+
+        return key
 
     def create_user(
         self, email: str, password: str, username: str, display_name: str | None
@@ -46,14 +81,35 @@ class UserService:
 
         return user.id
 
-    def delete_user_by_id(self, user_id: int):
+    def delete_user_by_id(self, user_id: str):
         self._user_repository.delete_user(user_id)
 
-    def get_user_by_id(self, user_id: int) -> User | None:
-        return self._user_repository.get_by_id(user_id)
+    def get_user_by_id(self, user_id: str) -> User:
+        user = self._user_repository.get_by_id(user_id)
+        if not user:
+            raise UserNotFoundException(f"User with id {user_id} not found")
 
-    def get_users(self) -> list[User]:
-        return self._user_repository.get_users()
+        return user
 
-    def update_user_by_id(self, user_id: int, user_data: dict):
-        self._user_repository.update_user(user_id, user_data)
+    def get_users(
+        self, filters: dict[str, str] | None, limit: int, next_key: str | None
+    ) -> tuple[list[User], str | None]:
+        exclusive_start_key = self._decode_next_key(next_key)
+
+        if filters:
+            users, last_evaluated_key = self._user_repository.filter_users(
+                filters=filters,
+                limit=limit,
+                exclusive_start_key=exclusive_start_key,
+            )
+        else:
+            users, last_evaluated_key = self._user_repository.get_users(
+                limit=limit,
+                exclusive_start_key=exclusive_start_key,
+            )
+
+        return users, self._encode_next_key(last_evaluated_key)
+
+    def update_user_by_id(self, user_id: str, user_data: dict[str, Any]):
+        payload = {**user_data, "updated_at": datetime.now(UTC).isoformat()}
+        self._user_repository.update_user(user_id, payload)

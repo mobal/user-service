@@ -1,14 +1,12 @@
-from pydantic import EmailStr
-
 from app.models.models import CamelModel
 
 
-class User(CamelModel):
+class UserResponse(CamelModel):
     id: str
     display_name: str
-    email: EmailStr
-    password: str
+    email: str
     username: str
+    password: str
     roles: list[str] = []
     created_at: str
     deleted_at: str | None = None

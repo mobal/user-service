@@ -1,6 +1,6 @@
 .PHONY: all build build-layer build-lambda format install lint bandit test tflint ty
 
-all: build bandit format lint test
+all: bandit format lint test
 
 build: build-layer build-lambda
 
