@@ -68,7 +68,9 @@ class TestUserAPI:
             "sub": "root-user-invalid-signature",
             "user": {"roles": ["root"]},
         }
-        return jwt.encode(payload, "N7f2Qp9Lm4Tx8Vb1Rc6Zd0Hs3Jy5KwEa", algorithm="HS256")
+        return jwt.encode(
+            payload, "N7f2Qp9Lm4Tx8Vb1Rc6Zd0Hs3Jy5KwEa", algorithm="HS256"
+        )
 
     def test_successfully_register_user(self, test_client: TestClient, root_token: str):
         response = test_client.post(
