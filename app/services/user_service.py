@@ -6,9 +6,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 from aws_lambda_powertools import Logger
 
-from app.exceptions import InvalidPaginationKeyException, UserNotFoundException
+from app.exceptions import (
+    InvalidPaginationKeyException,
+    InvalidPasswordException,
+    UserNotFoundException,
+)
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 
@@ -113,3 +118,13 @@ class UserService:
     def update_user_by_id(self, user_id: str, user_data: dict[str, Any]):
         payload = {**user_data, "updated_at": datetime.now(UTC).isoformat()}
         self._user_repository.update_user(user_id, payload)
+
+    def validate_user_by_id(self, user_id: str, password: str) -> User:
+        user = self.get_user_by_id(user_id)
+
+        try:
+            self._password_hasher.verify(user.password, password)
+        except VerifyMismatchError as error:
+            raise InvalidPasswordException("Invalid password") from error
+
+        return user

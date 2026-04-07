@@ -5,8 +5,13 @@ from datetime import datetime
 
 import pytest
 from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 
-from app.exceptions import InvalidPaginationKeyException
+from app.exceptions import (
+    InvalidPaginationKeyException,
+    InvalidPasswordException,
+    UserNotFoundException,
+)
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.user_service import UserService
@@ -202,3 +207,34 @@ class TestUserService:
         assert payload["display_name"] == "updated_root"
         assert payload["email"] == "updated@squarelabs.hu"
         assert datetime.fromisoformat(payload["updated_at"])
+
+    def test_successfully_validate_user_by_id(
+        self, mocker, user: User, user_service: UserService
+    ):
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        mocker.patch.object(PasswordHasher, "verify", return_value=True)
+
+        result = user_service.validate_user_by_id(user.id, "not_so_secure_password")
+
+        assert result == user
+        user_service._user_repository.get_by_id.assert_called_once_with(user.id)
+        user_service._password_hasher.verify.assert_called_once_with(
+            user.password, "not_so_secure_password"
+        )
+
+    def test_validate_user_by_id_raises_user_not_found_exception(
+        self, mocker, user: User, user_service: UserService
+    ):
+        mocker.patch.object(UserRepository, "get_by_id", return_value=None)
+
+        with pytest.raises(UserNotFoundException):
+            user_service.validate_user_by_id(user.id, "not_so_secure_password")
+
+    def test_validate_user_by_id_raises_invalid_password_exception(
+        self, mocker, user: User, user_service: UserService
+    ):
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        mocker.patch.object(PasswordHasher, "verify", side_effect=VerifyMismatchError)
+
+        with pytest.raises(InvalidPasswordException):
+            user_service.validate_user_by_id(user.id, "wrong_password")

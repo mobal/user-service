@@ -7,6 +7,7 @@ from app.jwt_bearer import JWTBearer, JWTToken
 from app.models.request.filters import UserFilterParams
 from app.models.request.register import RegistrationRequest
 from app.models.request.update_user import UpdateUserRequest
+from app.models.request.validate_user import ValiateUserRequest
 from app.models.response.user import UserResponse
 from app.models.response.users_page import UsersPage
 from app.security.authorization import pre_authorize
@@ -78,3 +79,13 @@ def update_user(
     token: Annotated[JWTToken, Depends(jwt_bearer)],
 ) -> None:
     user_service.update_user_by_id(user_id, body.model_dump(exclude_none=True))
+
+
+@router.post("/users/{user_id}/validate")
+@pre_authorize(roles=["users:read"])
+def validate_user(
+    user_id: str,
+    body: ValiateUserRequest,
+    token: Annotated[JWTToken, Depends(jwt_bearer)],
+):
+    return user_service.validate_user_by_id(user_id, body.password)
