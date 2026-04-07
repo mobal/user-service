@@ -88,4 +88,6 @@ def validate_user(
     body: ValiateUserRequest,
     token: Annotated[JWTToken, Depends(jwt_bearer)],
 ):
-    return user_service.validate_user_by_id(user_id, body.password)
+    user = user_service.validate_user_by_id(user_id, body.password)
+
+    return UserResponse(**user.model_dump())

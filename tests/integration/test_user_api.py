@@ -11,6 +11,26 @@ from app.models.user import User
 
 
 class TestUserAPI:
+    @staticmethod
+    def _assert_error_response(response, expected_status_code: int):
+        body = response.json()
+
+        assert body["status"] == expected_status_code
+        assert isinstance(body["error"], str)
+        assert body["error"]
+        assert isinstance(body["timestamp"], int)
+
+    @staticmethod
+    def _assert_user_response_body(body: dict, user: User):
+        assert body["id"] == user.id
+        assert body["displayName"] == user.display_name
+        assert body["email"] == user.email
+        assert body["username"] == user.username
+        assert body["roles"] == user.roles
+        assert body["createdAt"] == user.created_at
+        assert body["deletedAt"] == user.deleted_at
+        assert body["updatedAt"] == user.updated_at
+
     @pytest.fixture
     def test_client(self, initialize_users_table) -> TestClient:
         from app.api_handler import app
@@ -102,6 +122,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_register_user_returns_403_without_write_role(
         self, test_client: TestClient, user_token: str
@@ -118,6 +139,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_register_user_returns_422_when_passwords_do_not_match(
         self, test_client: TestClient, root_token: str
@@ -133,7 +155,13 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        body = response.json()
+        assert body["status"] == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert body["error"] == "Validation Error"
+        assert isinstance(body["timestamp"], int)
+        assert isinstance(body["errors"], list)
+        assert body["errors"]
 
     def test_register_user_returns_403_for_invalid_signature_token(
         self, test_client: TestClient, invalid_signature_token: str
@@ -150,6 +178,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_register_user_returns_403_for_expired_token(
         self, test_client: TestClient, expired_root_token: str
@@ -166,6 +195,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_register_user_returns_403_for_malformed_token(
         self, test_client: TestClient
@@ -182,6 +212,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_register_user_returns_403_for_invalid_authorization_scheme(
         self, test_client: TestClient, root_token: str
@@ -198,6 +229,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_successfully_delete_user(
         self, test_client: TestClient, root_token: str, user: User
@@ -215,6 +247,7 @@ class TestUserAPI:
         response = test_client.delete(f"/api/v1/users/{user.id}")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_delete_user_returns_403_without_write_role(
         self, test_client: TestClient, user_token: str, user: User
@@ -225,6 +258,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_successfully_get_user_by_id(
         self, test_client: TestClient, root_token: str, user: User
@@ -235,6 +269,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_200_OK
+        self._assert_user_response_body(response.json(), user)
 
     def test_get_user_by_id_returns_403_without_token(
         self, test_client: TestClient, user: User
@@ -242,6 +277,7 @@ class TestUserAPI:
         response = test_client.get(f"/api/v1/users/{user.id}")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_successfully_get_user_by_id_with_token_query_param(
         self, test_client: TestClient, root_token: str, user: User
@@ -249,6 +285,7 @@ class TestUserAPI:
         response = test_client.get(f"/api/v1/users/{user.id}?token={root_token}")
 
         assert response.status_code == status.HTTP_200_OK
+        self._assert_user_response_body(response.json(), user)
 
     def test_get_user_by_id_returns_403_with_invalid_token_query_param(
         self, test_client: TestClient, user: User
@@ -256,6 +293,7 @@ class TestUserAPI:
         response = test_client.get(f"/api/v1/users/{user.id}?token=not-a-valid-jwt")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_successfully_get_users(
         self, test_client: TestClient, root_token: str, user: User
@@ -268,11 +306,16 @@ class TestUserAPI:
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert "items" in body
+        assert body["nextKey"] is None
+        assert isinstance(body["items"], list)
+        assert len(body["items"]) == 1
+        self._assert_user_response_body(body["items"][0], user)
 
     def test_get_users_returns_403_without_token(self, test_client: TestClient):
         response = test_client.get("/api/v1/users")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_get_users_returns_403_without_read_role(
         self, test_client: TestClient, user_token: str
@@ -283,6 +326,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_get_users_returns_400_for_invalid_next_key(
         self, test_client: TestClient, root_token: str
@@ -293,6 +337,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self._assert_error_response(response, status.HTTP_400_BAD_REQUEST)
 
     def test_successfully_get_users_with_username_filter(
         self, test_client: TestClient, root_token: str, user: User
@@ -305,6 +350,10 @@ class TestUserAPI:
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert "items" in body
+        assert body["nextKey"] is None
+        assert isinstance(body["items"], list)
+        assert len(body["items"]) == 1
+        self._assert_user_response_body(body["items"][0], user)
 
     def test_successfully_update_user(
         self, test_client: TestClient, root_token: str, user: User
@@ -326,6 +375,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_update_user_returns_403_without_write_role(
         self, test_client: TestClient, user_token: str, user: User
@@ -337,6 +387,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_successfully_validate_user(
         self, test_client: TestClient, root_token: str, user: User, password: str
@@ -348,6 +399,9 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        self._assert_user_response_body(body, user)
+        assert "password" not in body
 
     def test_validate_user_returns_403_without_token(
         self, test_client: TestClient, user: User
@@ -358,6 +412,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_validate_user_returns_403_without_read_role(
         self, test_client: TestClient, user_token: str, user: User
@@ -369,6 +424,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_validate_user_returns_404_for_unknown_user_id(
         self, test_client: TestClient, root_token: str
@@ -380,6 +436,7 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
 
     def test_validate_user_returns_400_for_invalid_password(
         self, test_client: TestClient, root_token: str, user: User
@@ -391,3 +448,4 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self._assert_error_response(response, status.HTTP_400_BAD_REQUEST)
