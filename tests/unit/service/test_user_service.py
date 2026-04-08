@@ -212,6 +212,7 @@ class TestUserService:
         self, mocker, user: User, user_service: UserService
     ):
         mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        mocker.patch.object(UserRepository, "update_user")
         mocker.patch.object(PasswordHasher, "verify", return_value=True)
 
         result = user_service.validate_user_by_id(user.id, "not_so_secure_password")

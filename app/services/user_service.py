@@ -124,6 +124,11 @@ class UserService:
 
         try:
             self._password_hasher.verify(user.password, password)
+
+            self.update_user_by_id(
+                user_id=user_id,
+                user_data={"last_login_at": datetime.now(UTC).isoformat()},
+            )
         except VerifyMismatchError as error:
             raise InvalidPasswordException("Invalid password") from error
 
