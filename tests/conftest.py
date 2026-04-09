@@ -98,6 +98,7 @@ def user_dict(password) -> dict[str, Any]:
         "username": "root",
         "roles": ["root"],
         "created_at": now,
+        "last_login_at": now,
         "updated_at": now,
     }
 

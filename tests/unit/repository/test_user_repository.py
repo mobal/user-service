@@ -116,9 +116,11 @@ class TestUserRepository:
 
         item = users_table.get_item(Key={"id": user.id})["Item"]
 
-        assert response["ResponseMetadata"]["HTTPStatusCode"] == 200
+        assert response["id"] == user.id
         assert item["id"] == user.id
+        assert response["display_name"] == "updated_root"
         assert item["display_name"] == "updated_root"
+        assert response["updated_at"] == updated_at
         assert item["updated_at"] == updated_at
 
     def test_update_user_returns_empty_dict_when_only_id_is_provided(

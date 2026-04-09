@@ -115,21 +115,25 @@ class UserService:
 
         return users, self._encode_next_key(last_evaluated_key)
 
-    def update_user_by_id(self, user_id: str, user_data: dict[str, Any]):
+    def update_user_by_id(
+        self, user_id: str, user_data: dict[str, Any]
+    ) -> dict[str, Any]:
         payload = {**user_data, "updated_at": datetime.now(UTC).isoformat()}
-        self._user_repository.update_user(user_id, payload)
+        return self._user_repository.update_user(user_id, payload)
 
     def validate_user_by_id(self, user_id: str, password: str) -> User:
         user = self.get_user_by_id(user_id)
 
         try:
             self._password_hasher.verify(user.password, password)
+            self._logger.info(
+                f"User {user_id} authenticated successfully", extra={"user_id": user_id}
+            )
 
-            self.update_user_by_id(
+            updated_user = self.update_user_by_id(
                 user_id=user_id,
                 user_data={"last_login_at": datetime.now(UTC).isoformat()},
             )
+            return User(**updated_user)
         except VerifyMismatchError as error:
             raise InvalidPasswordException("Invalid password") from error
-
-        return user

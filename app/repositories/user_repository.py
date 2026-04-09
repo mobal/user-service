@@ -77,12 +77,15 @@ class UserRepository:
             expression_values[value_key] = value
             set_clauses.append(f"{name_key} = {value_key}")
 
-        return self._table.update_item(
+        response = self._table.update_item(
             Key={"id": user_id},
             UpdateExpression=f"SET {', '.join(set_clauses)}",
             ExpressionAttributeNames=expression_names,
             ExpressionAttributeValues=expression_values,
+            ReturnValues="ALL_NEW",
         )
+
+        return response.get("Attributes", {})
 
     def get_user_by_email(self, email: str) -> User | None:
         response = self._table.query(

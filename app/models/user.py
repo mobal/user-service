@@ -12,4 +12,5 @@ class User(CamelModel):
     roles: list[str] = []
     created_at: str
     deleted_at: str | None = None
+    last_login_at: str | None = None
     updated_at: str | None = None

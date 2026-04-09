@@ -212,7 +212,9 @@ class TestUserService:
         self, mocker, user: User, user_service: UserService
     ):
         mocker.patch.object(UserRepository, "get_by_id", return_value=user)
-        mocker.patch.object(UserRepository, "update_user")
+        update_user_mock = mocker.patch.object(
+            UserRepository, "update_user", return_value=user.model_dump()
+        )
         mocker.patch.object(PasswordHasher, "verify", return_value=True)
 
         result = user_service.validate_user_by_id(user.id, "not_so_secure_password")
@@ -222,6 +224,7 @@ class TestUserService:
         user_service._password_hasher.verify.assert_called_once_with(
             user.password, "not_so_secure_password"
         )
+        update_user_mock.assert_called_once()
 
     def test_validate_user_by_id_raises_user_not_found_exception(
         self, mocker, user: User, user_service: UserService

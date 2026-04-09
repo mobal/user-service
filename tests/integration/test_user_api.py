@@ -390,8 +390,18 @@ class TestUserAPI:
         self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_successfully_validate_user(
-        self, test_client: TestClient, root_token: str, user: User, password: str
+        self,
+        mocker,
+        test_client: TestClient,
+        root_token: str,
+        user: User,
+        password: str,
     ):
+        mocker.patch(
+            "app.services.user_service.UserService.update_user_by_id",
+            return_value=user.model_dump(),
+        )
+
         response = test_client.post(
             f"/api/v1/users/{user.id}/validate",
             json={"password": password},
