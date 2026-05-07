@@ -1,9 +1,9 @@
 from pydantic import EmailStr
 
-from app.models.models import CamelModel
+from app.models.base import CamelCaseModel
 
 
-class User(CamelModel):
+class User(CamelCaseModel):
     id: str
     display_name: str
     email: EmailStr

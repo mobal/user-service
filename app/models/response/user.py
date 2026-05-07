@@ -1,7 +1,7 @@
-from app.models.models import CamelModel
+from app.models.base import CamelCaseModel
 
 
-class UserResponse(CamelModel):
+class UserResponse(CamelCaseModel):
     id: str
     display_name: str
     email: str

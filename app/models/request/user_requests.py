@@ -1,9 +1,9 @@
 from pydantic import EmailStr, ValidationInfo, field_validator
 
-from app.models.models import CamelModel
+from app.models.base import CamelCaseModel
 
 
-class RegistrationRequest(CamelModel):
+class CreateUserRequest(CamelCaseModel):
     email: EmailStr
     username: str
     password: str
@@ -19,3 +19,13 @@ class RegistrationRequest(CamelModel):
         ):
             raise ValueError("Passwords do not match")
         return value
+
+
+class UpdateUserRequest(CamelCaseModel):
+    display_name: str | None = None
+    email: EmailStr | None = None
+    username: str | None = None
+
+
+class ValidateUserRequest(CamelCaseModel):
+    password: str

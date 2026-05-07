@@ -79,6 +79,7 @@ class UserRepository:
 
         response = self._table.update_item(
             Key={"id": user_id},
+            ConditionExpression=(Attr("deleted_at").not_exists() | Attr("deleted_at").eq(None)) & Attr("id").exists(),
             UpdateExpression=f"SET {', '.join(set_clauses)}",
             ExpressionAttributeNames=expression_names,
             ExpressionAttributeValues=expression_values,

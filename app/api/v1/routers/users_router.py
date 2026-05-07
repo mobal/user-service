@@ -4,10 +4,12 @@ from aws_lambda_powertools.logging import Logger
 from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.jwt_bearer import JWTBearer, JWTToken
-from app.models.request.filters import UserFilterParams
-from app.models.request.register import RegistrationRequest
-from app.models.request.update_user import UpdateUserRequest
-from app.models.request.validate_user import ValiateUserRequest
+from app.models.request.filters import UserListQueryParams
+from app.models.request.user_requests import (
+    CreateUserRequest,
+    UpdateUserRequest,
+    ValidateUserRequest,
+)
 from app.models.response.user import UserResponse
 from app.models.response.users_page import UsersPage
 from app.security.authorization import pre_authorize
@@ -22,7 +24,7 @@ jwt_bearer = JWTBearer()
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 @pre_authorize(roles=["users:write"])
 def register_user(
-    body: RegistrationRequest, token: Annotated[JWTToken, Depends(jwt_bearer)]
+    body: CreateUserRequest, token: Annotated[JWTToken, Depends(jwt_bearer)]
 ):
     user_id = user_service.create_user(
         body.email, body.password, body.username, body.display_name
@@ -51,7 +53,7 @@ def get_user_by_id(user_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]
 @router.get("/users")
 @pre_authorize(roles=["users:read"])
 def get_users(
-    filters: Annotated[UserFilterParams, Query()],
+    filters: Annotated[UserListQueryParams, Query()],
     token: Annotated[JWTToken, Depends(jwt_bearer)],
 ) -> UsersPage:
     filter_values = filters.model_dump(
@@ -85,7 +87,7 @@ def update_user(
 @pre_authorize(roles=["users:read"])
 def validate_user(
     user_id: str,
-    body: ValiateUserRequest,
+    body: ValidateUserRequest,
     token: Annotated[JWTToken, Depends(jwt_bearer)],
 ):
     user = user_service.validate_user_by_id(user_id, body.password)

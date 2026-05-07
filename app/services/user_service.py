@@ -66,6 +66,7 @@ class UserService:
             self._logger.warning(
                 f"User with email {email} already exists", extra={"email": email}
             )
+            raise UserNotFoundException(f"User with email {email} already exists")
 
         if self._user_repository.get_by_username(username):
             self._logger.warning(
