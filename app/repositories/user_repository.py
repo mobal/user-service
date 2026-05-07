@@ -16,8 +16,11 @@ class UserRepository:
     def create_user(self, data: dict[str, Any]) -> dict[str, Any]:
         return self._table.put_item(Item=data)
 
-    def delete_user(self, user_id: str) -> dict[str, Any]:
-        return self._table.delete_item(Key={"id": user_id})
+    def delete_user(self, user_id: str, deleted_at: str) -> dict[str, Any]:
+        return self.update_user(
+            user_id=user_id,
+            data={"deleted_at": deleted_at, "updated_at": deleted_at},
+        )
 
     def filter_users(
         self,
@@ -79,10 +82,16 @@ class UserRepository:
 
         response = self._table.update_item(
             Key={"id": user_id},
-            ConditionExpression=(Attr("deleted_at").not_exists() | Attr("deleted_at").eq(None)) & Attr("id").exists(),
+            ConditionExpression=(
+                "attribute_exists(id) AND "
+                "(attribute_not_exists(deleted_at) OR deleted_at = :deleted_at_null)"
+            ),
             UpdateExpression=f"SET {', '.join(set_clauses)}",
             ExpressionAttributeNames=expression_names,
-            ExpressionAttributeValues=expression_values,
+            ExpressionAttributeValues={
+                **expression_values,
+                ":deleted_at_null": None,
+            },
             ReturnValues="ALL_NEW",
         )
 
@@ -99,7 +108,7 @@ class UserRepository:
             return User(**response["Items"][0])
         return None
 
-    def get_by_id(self, user_id: int) -> User | None:
+    def get_by_id(self, user_id: str) -> User | None:
         response = self._table.query(
             KeyConditionExpression=Key("id").eq(user_id),
             FilterExpression=Attr("deleted_at").not_exists()

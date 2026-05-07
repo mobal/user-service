@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from botocore.exceptions import ClientError
 
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
@@ -33,16 +34,26 @@ class TestUserRepository:
     def test_successfully_delete_user(
         self, user: User, user_repository: UserRepository, users_table
     ):
-        response = user_repository.delete_user(user.id)
+        deleted_at = datetime.now(UTC).isoformat()
+        response = user_repository.delete_user(user.id, deleted_at)
+        item = users_table.get_item(Key={"id": user.id})["Item"]
 
-        assert response["ResponseMetadata"]["HTTPStatusCode"] == 200
+        assert response["id"] == user.id
+        assert response["deleted_at"] == deleted_at
+        assert item["deleted_at"] == deleted_at
 
-    def test_delete_user_returns_empty_attributes_if_id_not_found(
+    def test_delete_user_raises_when_id_not_found(
         self, user_repository: UserRepository, users_table
     ):
-        response = user_repository.delete_user(str(uuid.uuid4()))
+        with pytest.raises(ClientError) as error:
+            user_repository.delete_user(
+                str(uuid.uuid4()), datetime.now(UTC).isoformat()
+            )
 
-        assert response["Attributes"] == {}
+        assert (
+            error.value.response.get("Error", {}).get("Code")
+            == "ConditionalCheckFailedException"
+        )
 
     def test_successfully_get_by_id(
         self, users_table, user: User, user_repository: UserRepository
@@ -129,6 +140,23 @@ class TestUserRepository:
         response = user_repository.update_user(user.id, {"id": user.id})
 
         assert response == {}
+
+    def test_update_user_raises_when_id_not_found(
+        self, user_repository: UserRepository, users_table
+    ):
+        with pytest.raises(ClientError) as error:
+            user_repository.update_user(
+                str(uuid.uuid4()),
+                {
+                    "display_name": "updated_root",
+                    "updated_at": datetime.now(UTC).isoformat(),
+                },
+            )
+
+        assert (
+            error.value.response.get("Error", {}).get("Code")
+            == "ConditionalCheckFailedException"
+        )
 
     def test_filter_users_returns_only_matching_active_users(
         self, users_table, user_repository: UserRepository

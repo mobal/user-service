@@ -231,6 +231,40 @@ class TestUserAPI:
         assert response.status_code == status.HTTP_403_FORBIDDEN
         self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
+    def test_register_user_returns_409_for_duplicate_email(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        response = test_client.post(
+            "/api/v1/users",
+            json={
+                "email": user.email,
+                "username": "different-user",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        self._assert_error_response(response, status.HTTP_409_CONFLICT)
+
+    def test_register_user_returns_409_for_duplicate_username(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        response = test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "someone-else@squarelabs.hu",
+                "username": user.username,
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        self._assert_error_response(response, status.HTTP_409_CONFLICT)
+
     def test_successfully_delete_user(
         self, test_client: TestClient, root_token: str, user: User
     ):
@@ -240,6 +274,25 @@ class TestUserAPI:
         )
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        get_response = test_client.get(
+            f"/api/v1/users/{user.id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert get_response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(get_response, status.HTTP_404_NOT_FOUND)
+
+    def test_delete_user_returns_404_for_unknown_user(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.delete(
+            f"/api/v1/users/{uuid.uuid4()}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
 
     def test_delete_user_returns_403_without_token(
         self, test_client: TestClient, user: User
@@ -389,6 +442,41 @@ class TestUserAPI:
         assert response.status_code == status.HTTP_403_FORBIDDEN
         self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
+    def test_update_user_returns_404_for_unknown_user(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.put(
+            f"/api/v1/users/{uuid.uuid4()}",
+            json={"displayName": "Updated Name"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
+
+    def test_update_user_returns_409_for_duplicate_email(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "newuser@squarelabs.hu",
+                "username": "newuser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        response = test_client.put(
+            f"/api/v1/users/{user.id}",
+            json={"email": "newuser@squarelabs.hu"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        self._assert_error_response(response, status.HTTP_409_CONFLICT)
+
     def test_successfully_validate_user(
         self,
         mocker,
@@ -398,7 +486,7 @@ class TestUserAPI:
         password: str,
     ):
         mocker.patch(
-            "app.services.user_service.UserService.update_user_by_id",
+            "app.services.user_service.UserService._update_user",
             return_value=user.model_dump(),
         )
 

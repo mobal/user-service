@@ -1,4 +1,4 @@
-from pydantic import EmailStr
+from pydantic import EmailStr, Field
 
 from app.models.base import CamelCaseModel
 
@@ -9,7 +9,7 @@ class User(CamelCaseModel):
     email: EmailStr
     password: str
     username: str
-    roles: list[str] = []
+    roles: list[str] = Field(default_factory=list)
     created_at: str
     deleted_at: str | None = None
     last_login_at: str | None = None

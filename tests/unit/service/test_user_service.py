@@ -5,11 +5,13 @@ from datetime import datetime
 
 import pytest
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
+from argon2.exceptions import InvalidHashError, VerifyMismatchError
 
 from app.exceptions import (
+    BadRequestException,
     InvalidPaginationKeyException,
     InvalidPasswordException,
+    UserAlreadyExistsException,
     UserNotFoundException,
 )
 from app.models.user import User
@@ -21,18 +23,6 @@ class TestUserService:
     @pytest.fixture
     def user_service(self) -> UserService:
         return UserService()
-
-    def test_filter_users_successfully_returns_users(
-        self, mocker, user: User, user_service: UserService
-    ):
-        mocker.patch.object(UserRepository, "filter_users", return_value=([user], None))
-
-        items = user_service._filter_users({"username": user.username})
-
-        assert items == [user]
-        user_service._user_repository.filter_users.assert_called_once_with(
-            filters={"username": user.username}, limit=100
-        )
 
     def test_encode_next_key_successfully_returns_none_for_empty_key(self):
         encoded_next_key = UserService._encode_next_key(None)
@@ -67,6 +57,16 @@ class TestUserService:
             InvalidPaginationKeyException, match="Invalid pagination key"
         ):
             UserService._decode_next_key("asdasdasd")
+
+    def test_decode_next_key_raises_value_error_for_wrong_shape(self):
+        invalid_next_key = urlsafe_b64encode(
+            json.dumps({"id": "next-page", "email": "user@example.com"}).encode()
+        ).decode()
+
+        with pytest.raises(
+            InvalidPaginationKeyException, match="Invalid pagination key"
+        ):
+            UserService._decode_next_key(invalid_next_key)
 
     def test_successfully_create_user(self, mocker, user_service: UserService):
         mocker.patch.object(UserRepository, "get_user_by_email", return_value=None)
@@ -111,31 +111,53 @@ class TestUserService:
 
         assert payload["display_name"] == ""
 
-    def test_create_user_logs_warnings_when_user_already_exists(
+    def test_create_user_raises_conflict_when_email_already_exists(
         self, mocker, user: User, user_service: UserService
     ):
         mocker.patch.object(UserRepository, "get_user_by_email", return_value=user)
-        mocker.patch.object(UserRepository, "get_by_username", return_value=user)
-        mocker.patch.object(UserRepository, "create_user")
+        create_user_mock = mocker.patch.object(UserRepository, "create_user")
         logger_warning = mocker.patch.object(user_service._logger, "warning")
 
-        user_service.create_user(
-            email=user.email,
-            password="not_so_secure_password",
-            username=user.username,
-            display_name=user.display_name,
-        )
+        with pytest.raises(UserAlreadyExistsException):
+            user_service.create_user(
+                email=user.email,
+                password="not_so_secure_password",
+                username="different_username",
+                display_name=user.display_name,
+            )
 
-        assert logger_warning.call_count == 2
+        create_user_mock.assert_not_called()
+        logger_warning.assert_called_once()
 
-    def test_successfully_delete_user_by_id(
+    def test_create_user_raises_conflict_when_username_already_exists(
         self, mocker, user: User, user_service: UserService
     ):
-        delete_user_mock = mocker.patch.object(UserRepository, "delete_user")
+        mocker.patch.object(UserRepository, "get_user_by_email", return_value=None)
+        mocker.patch.object(UserRepository, "get_by_username", return_value=user)
+
+        with pytest.raises(UserAlreadyExistsException):
+            user_service.create_user(
+                email="new@example.com",
+                password="not_so_secure_password",
+                username=user.username,
+                display_name=user.display_name,
+            )
+
+    def test_delete_user_by_id_soft_deletes_user(
+        self, mocker, user: User, user_service: UserService
+    ):
+        delete_user_mock = mocker.patch.object(
+            UserRepository, "delete_user", return_value=user.model_dump()
+        )
 
         user_service.delete_user_by_id(user.id)
 
-        delete_user_mock.assert_called_once_with(user.id)
+        delete_user_mock.assert_called_once()
+        called_user_id = delete_user_mock.call_args.args[0]
+        deleted_at = delete_user_mock.call_args.args[1]
+
+        assert called_user_id == user.id
+        assert datetime.fromisoformat(deleted_at)
 
     def test_successfully_get_user_by_id(
         self, mocker, user: User, user_service: UserService
@@ -192,7 +214,12 @@ class TestUserService:
     def test_successfully_update_user_by_id(
         self, mocker, user: User, user_service: UserService
     ):
-        update_user_mock = mocker.patch.object(UserRepository, "update_user")
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        mocker.patch.object(UserRepository, "get_user_by_email", return_value=None)
+        mocker.patch.object(UserRepository, "get_by_username", return_value=None)
+        update_user_mock = mocker.patch.object(
+            UserRepository, "update_user", return_value=user.model_dump()
+        )
 
         user_service.update_user_by_id(
             user.id,
@@ -207,6 +234,28 @@ class TestUserService:
         assert payload["display_name"] == "updated_root"
         assert payload["email"] == "updated@squarelabs.hu"
         assert datetime.fromisoformat(payload["updated_at"])
+
+    def test_update_user_by_id_raises_for_invalid_fields(
+        self, mocker, user: User, user_service: UserService
+    ):
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+
+        with pytest.raises(BadRequestException):
+            user_service.update_user_by_id(user.id, {"roles": ["admin"]})
+
+    def test_update_user_by_id_raises_when_email_belongs_to_other_user(
+        self, mocker, user: User, user_service: UserService
+    ):
+        other_user = user.model_copy(
+            update={"id": str(uuid.uuid4()), "email": "other@squarelabs.hu"}
+        )
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        mocker.patch.object(
+            UserRepository, "get_user_by_email", return_value=other_user
+        )
+
+        with pytest.raises(UserAlreadyExistsException):
+            user_service.update_user_by_id(user.id, {"email": other_user.email})
 
     def test_successfully_validate_user_by_id(
         self, mocker, user: User, user_service: UserService
@@ -239,6 +288,15 @@ class TestUserService:
     ):
         mocker.patch.object(UserRepository, "get_by_id", return_value=user)
         mocker.patch.object(PasswordHasher, "verify", side_effect=VerifyMismatchError)
+
+        with pytest.raises(InvalidPasswordException):
+            user_service.validate_user_by_id(user.id, "wrong_password")
+
+    def test_validate_user_by_id_raises_invalid_password_for_invalid_hash(
+        self, mocker, user: User, user_service: UserService
+    ):
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        mocker.patch.object(PasswordHasher, "verify", side_effect=InvalidHashError)
 
         with pytest.raises(InvalidPasswordException):
             user_service.validate_user_by_id(user.id, "wrong_password")
