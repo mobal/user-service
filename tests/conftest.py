@@ -126,8 +126,8 @@ def users_table_name() -> str:
 def role_dict() -> dict[str, Any]:
     now = datetime.now(tz=UTC).isoformat()
     return {
-        "role_name": "root",
-        "path": "/admin",
+        "path": "SUPER_ADMIN",
+        "description": "Root role",
         "permissions": ["roles:read", "roles:write"],
         "created_at": now,
         "updated_at": now,
@@ -137,7 +137,7 @@ def role_dict() -> dict[str, Any]:
 @pytest.fixture
 def role(role_dict: dict[str, Any]) -> Role:
     return Role(
-        id=str(uuid.uuid4()),
+        id="SUPER_ADMIN",
         **role_dict,
     )
 
@@ -147,15 +147,15 @@ def initialize_roles_table(dynamodb_resource, role: Role, roles_table_name: str)
     roles_table = dynamodb_resource.create_table(
         AttributeDefinitions=[
             {"AttributeName": "id", "AttributeType": "S"},
-            {"AttributeName": "role_name", "AttributeType": "S"},
+            {"AttributeName": "path", "AttributeType": "S"},
         ],
         TableName=roles_table_name,
         KeySchema=[{"AttributeName": "id", "KeyType": "HASH"}],
         GlobalSecondaryIndexes=[
             {
-                "IndexName": "RoleNameIndex",
+                "IndexName": "PathIndex",
                 "KeySchema": [
-                    {"AttributeName": "role_name", "KeyType": "HASH"},
+                    {"AttributeName": "path", "KeyType": "HASH"},
                 ],
                 "Projection": {
                     "ProjectionType": "ALL",

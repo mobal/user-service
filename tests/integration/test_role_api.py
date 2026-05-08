@@ -21,14 +21,32 @@ class TestRoleAPI:
         assert isinstance(body["timestamp"], int)
 
     @staticmethod
-    def _assert_role_response_body(body: dict, role: Role):
+    def _assert_role_response_body(
+        body: dict, role: Role, inherited_roles: list[Role] | None = None
+    ):
         assert body["id"] == role.id
-        assert body["roleName"] == role.role_name
         assert body["path"] == role.path
+        assert body["description"] == role.description
         assert body["permissions"] == role.permissions
         assert body["createdAt"] == role.created_at
         assert body["deletedAt"] == role.deleted_at
         assert body["updatedAt"] == role.updated_at
+        if inherited_roles is None:
+            assert "inheritedRoles" not in body
+            return
+
+        assert body["inheritedRoles"] == [
+            {
+                "id": inherited_role.id,
+                "path": inherited_role.path,
+                "description": inherited_role.description,
+                "permissions": inherited_role.permissions,
+                "createdAt": inherited_role.created_at,
+                "deletedAt": inherited_role.deleted_at,
+                "updatedAt": inherited_role.updated_at,
+            }
+            for inherited_role in inherited_roles
+        ]
 
     @pytest.fixture
     def test_client(self, initialize_roles_table) -> TestClient:
@@ -70,8 +88,9 @@ class TestRoleAPI:
         response = test_client.post(
             "/api/v1/roles",
             json={
-                "roleName": "editor",
-                "path": "/editor",
+                "id": "STORE_EDITOR",
+                "path": "SUPER_ADMIN#STORE_EDITOR",
+                "description": "Store editor",
                 "permissions": ["roles:read"],
             },
             headers={"Authorization": f"Bearer {root_token}"},
@@ -84,7 +103,11 @@ class TestRoleAPI:
     def test_create_role_returns_403_without_token(self, test_client: TestClient):
         response = test_client.post(
             "/api/v1/roles",
-            json={"roleName": "editor", "path": "/editor"},
+            json={
+                "id": "STORE_EDITOR",
+                "path": "SUPER_ADMIN#STORE_EDITOR",
+                "description": "Store editor",
+            },
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -95,7 +118,11 @@ class TestRoleAPI:
     ):
         response = test_client.post(
             "/api/v1/roles",
-            json={"roleName": "editor", "path": "/editor"},
+            json={
+                "id": "STORE_EDITOR",
+                "path": "SUPER_ADMIN#STORE_EDITOR",
+                "description": "Store editor",
+            },
             headers={"Authorization": f"Bearer {user_token}"},
         )
 
@@ -179,21 +206,44 @@ class TestRoleAPI:
     # GET /api/v1/roles/name/{role_name}
 
     def test_successfully_get_role_by_name(
-        self, test_client: TestClient, root_token: str, role: Role
+        self, test_client: TestClient, root_token: str, role: Role, roles_table
     ):
+        inherited_role = {
+            "id": "REGIONAL_MGR",
+            "path": "SUPER_ADMIN#REGIONAL_MGR",
+            "description": "Regional manager",
+            "permissions": ["regions:write"],
+            "created_at": role.created_at,
+            "updated_at": role.updated_at,
+        }
+        child_role = {
+            "id": "STORE_MGR",
+            "path": "SUPER_ADMIN#REGIONAL_MGR#STORE_MGR",
+            "description": "Store manager",
+            "permissions": ["stores:write"],
+            "created_at": role.created_at,
+            "updated_at": role.updated_at,
+        }
+        roles_table.put_item(Item=inherited_role)
+        roles_table.put_item(Item=child_role)
+
         response = test_client.get(
-            f"/api/v1/roles/name/{role.role_name}",
+            "/api/v1/roles/name/STORE_MGR",
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
         assert response.status_code == status.HTTP_200_OK
-        self._assert_role_response_body(response.json(), role)
+        self._assert_role_response_body(
+            response.json(),
+            Role(**child_role),
+            [role, Role(**inherited_role)],
+        )
 
     def test_get_role_by_name_returns_404_for_unknown_role(
         self, test_client: TestClient, root_token: str
     ):
         response = test_client.get(
-            "/api/v1/roles/name/nonexistent-role",
+            "/api/v1/roles/name/NONEXISTENT",
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
@@ -201,7 +251,7 @@ class TestRoleAPI:
         self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
 
     def test_get_role_by_name_returns_403_without_token(self, test_client: TestClient):
-        response = test_client.get("/api/v1/roles/name/some-role")
+        response = test_client.get("/api/v1/roles/name/SUPER_ADMIN")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
@@ -210,7 +260,7 @@ class TestRoleAPI:
         self, test_client: TestClient, user_token: str
     ):
         response = test_client.get(
-            "/api/v1/roles/name/some-role",
+            "/api/v1/roles/name/SUPER_ADMIN",
             headers={"Authorization": f"Bearer {user_token}"},
         )
 
@@ -224,7 +274,7 @@ class TestRoleAPI:
     ):
         response = test_client.put(
             f"/api/v1/roles/{role.id}",
-            json={"roleName": "updated_root"},
+            json={"description": "Updated root role"},
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
@@ -235,7 +285,7 @@ class TestRoleAPI:
     ):
         response = test_client.put(
             f"/api/v1/roles/{role.id}",
-            json={"roleName": "updated_root"},
+            json={"description": "Updated root role"},
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -246,7 +296,7 @@ class TestRoleAPI:
     ):
         response = test_client.put(
             f"/api/v1/roles/{role.id}",
-            json={"roleName": "updated_root"},
+            json={"description": "Updated root role"},
             headers={"Authorization": f"Bearer {user_token}"},
         )
 

@@ -1,11 +1,14 @@
 import functools
 
 from aws_lambda_powertools import Logger
+from botocore.exceptions import ClientError
 from fastapi import HTTPException, status
 
 from app.models.jwt import JWTToken
+from app.services.role_service import RoleService
 
 logger = Logger()
+role_service = RoleService()
 
 
 def pre_authorize(roles: list[str]):
@@ -26,9 +29,19 @@ def pre_authorize(roles: list[str]):
 
             user_roles = token.user.get("roles") if token.user else None
             if isinstance(user_roles, list):
-                permissions.update(
+                normalized_user_roles = [
                     role for role in user_roles if isinstance(role, str) and role
-                )
+                ]
+                permissions.update(normalized_user_roles)
+
+                try:
+                    permissions.update(
+                        role_service.get_effective_permissions(normalized_user_roles)
+                    )
+                except ClientError:
+                    logger.warning(
+                        "Skipping role inheritance resolution during authorization"
+                    )
 
             if not any(role in permissions for role in roles):
                 logger.warning("User does not have required roles: %s", roles)

@@ -13,6 +13,14 @@ class RoleRepository:
             boto3.Session().resource("dynamodb").Table(f"{settings.stage}-roles")
         )
 
+    @staticmethod
+    def _is_active(item: dict[str, Any] | None) -> bool:
+        return bool(item) and item.get("deleted_at") is None
+
+    @staticmethod
+    def _extract_role_name(path: str) -> str:
+        return path.rsplit("#", maxsplit=1)[-1].strip()
+
     def create_role(self, data: dict[str, Any]) -> dict[str, Any]:
         return self._table.put_item(Item=data)
 
@@ -46,8 +54,16 @@ class RoleRepository:
         return response.get("Attributes", {})
 
     def get_by_id(self, role_id: str) -> Role | None:
+        response = self._table.get_item(Key={"id": role_id})
+        item = response.get("Item")
+        if self._is_active(item):
+            return Role(**item)
+        return None
+
+    def get_by_path(self, path: str) -> Role | None:
         response = self._table.query(
-            KeyConditionExpression=Key("id").eq(role_id),
+            IndexName="PathIndex",
+            KeyConditionExpression=Key("path").eq(path),
             FilterExpression=Attr("deleted_at").not_exists()
             | Attr("deleted_at").eq(None),
         )
@@ -56,12 +72,19 @@ class RoleRepository:
         return None
 
     def get_by_name(self, role_name: str) -> Role | None:
-        response = self._table.query(
-            IndexName="RoleNameIndex",
-            KeyConditionExpression=Key("role_name").eq(role_name),
-            FilterExpression=Attr("deleted_at").not_exists()
+        scan_kwargs: dict[str, Any] = {
+            "FilterExpression": Attr("deleted_at").not_exists()
             | Attr("deleted_at").eq(None),
-        )
-        if response["Items"]:
-            return Role(**response["Items"][0])
-        return None
+        }
+
+        while True:
+            response = self._table.scan(**scan_kwargs)
+            for item in response.get("Items", []):
+                if self._extract_role_name(item.get("path", "")) == role_name:
+                    return Role(**item)
+
+            last_evaluated_key = response.get("LastEvaluatedKey")
+            if not last_evaluated_key:
+                return None
+
+            scan_kwargs["ExclusiveStartKey"] = last_evaluated_key

@@ -52,15 +52,15 @@ resource "aws_dynamodb_table" "roles" {
   }
 
   attribute {
-    name = "role_name"
+    name = "path"
     type = "S"
   }
 
   global_secondary_index {
-    name = "RoleNameIndex"
+    name = "PathIndex"
 
     key_schema {
-      attribute_name = "role_name"
+      attribute_name = "path"
       key_type = "HASH"
     }
 

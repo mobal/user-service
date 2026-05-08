@@ -15,11 +15,11 @@ class TestRoleRepository:
     def test_successfully_create_role(
         self, role_repository: RoleRepository, roles_table
     ):
-        new_role_id = str(uuid.uuid4())
+        new_role_id = "STORE_AUDITOR"
         role_data = {
             "id": new_role_id,
-            "role_name": "auditor",
-            "path": "/audit",
+            "path": "SUPER_ADMIN#STORE_AUDITOR",
+            "description": "Store auditor",
             "permissions": ["audit:read"],
             "created_at": datetime.now(UTC).isoformat(),
         }
@@ -55,8 +55,8 @@ class TestRoleRepository:
             role.id,
             {
                 "id": str(uuid.uuid4()),
-                "role_name": "super_admin",
-                "path": "/super-admin",
+                "path": "SUPER_ADMIN",
+                "description": "Updated root role",
                 "permissions": ["roles:read", "roles:write", "users:write"],
                 "updated_at": updated_at,
             },
@@ -66,10 +66,10 @@ class TestRoleRepository:
 
         assert response["id"] == role.id
         assert item["id"] == role.id
-        assert response["role_name"] == "super_admin"
-        assert item["role_name"] == "super_admin"
-        assert response["path"] == "/super-admin"
-        assert item["path"] == "/super-admin"
+        assert response["path"] == "SUPER_ADMIN"
+        assert item["path"] == "SUPER_ADMIN"
+        assert response["description"] == "Updated root role"
+        assert item["description"] == "Updated root role"
         assert response["permissions"] == [
             "roles:read",
             "roles:write",
@@ -118,17 +118,45 @@ class TestRoleRepository:
 
         assert item is None
 
+    def test_successfully_get_role_by_path(
+        self, role: Role, role_repository: RoleRepository, roles_table
+    ):
+        item = role_repository.get_by_path(role.path)
+
+        assert item == role
+
     def test_successfully_get_role_by_name(
         self, role: Role, role_repository: RoleRepository, roles_table
     ):
-        item = role_repository.get_by_name(role.role_name)
+        item = role_repository.get_by_name(role.id)
 
         assert item == role
+
+    def test_get_by_path_returns_none_for_missing_role(
+        self, role_repository: RoleRepository, roles_table
+    ):
+        item = role_repository.get_by_path("SUPER_ADMIN#NONEXISTENT")
+
+        assert item is None
 
     def test_get_by_name_returns_none_for_missing_role(
         self, role_repository: RoleRepository, roles_table
     ):
-        item = role_repository.get_by_name("nonexistent-role")
+        item = role_repository.get_by_name("NONEXISTENT")
+
+        assert item is None
+
+    def test_get_by_path_returns_none_for_soft_deleted_role(
+        self, role: Role, role_repository: RoleRepository, roles_table
+    ):
+        deleted_at = datetime.now(UTC).isoformat()
+        roles_table.update_item(
+            Key={"id": role.id},
+            UpdateExpression="SET deleted_at = :deleted_at",
+            ExpressionAttributeValues={":deleted_at": deleted_at},
+        )
+
+        item = role_repository.get_by_path(role.path)
 
         assert item is None
 
@@ -142,6 +170,6 @@ class TestRoleRepository:
             ExpressionAttributeValues={":deleted_at": deleted_at},
         )
 
-        item = role_repository.get_by_name(role.role_name)
+        item = role_repository.get_by_name(role.id)
 
         assert item is None

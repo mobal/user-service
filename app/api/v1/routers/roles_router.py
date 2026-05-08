@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Response, status
 from app.exceptions import NotFoundException
 from app.jwt_bearer import JWTBearer, JWTToken
 from app.models.request.role_requests import CreateRoleRequest, UpdateRoleRequest
+from app.models.response.role import RoleWithInheritanceResponse
 from app.models.role import Role
 from app.security.authorization import pre_authorize
 from app.services.role_service import RoleService
@@ -35,22 +36,24 @@ def delete_role(role_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
     role_service.delete_role(role_id)
 
 
+@router.get("/roles/name/{role_name}")
+@pre_authorize(roles=["roles:read"])
+def get_role_by_name(role_name: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
+    role_with_inheritance = role_service.get_inherited_roles_by_name(role_name)
+    if not role_with_inheritance:
+        raise NotFoundException(f"Role with name {role_name} not found")
+
+    role, inherited_roles = role_with_inheritance
+
+    return RoleWithInheritanceResponse.from_role(role, inherited_roles)
+
+
 @router.get("/roles/{role_id}")
 @pre_authorize(roles=["roles:read"])
 def get_role_by_id(role_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
     role = role_service.get_role_by_id(role_id)
     if not role:
         raise NotFoundException(f"Role with id {role_id} not found")
-
-    return Role(**role.model_dump())
-
-
-@router.get("/roles/name/{role_name}")
-@pre_authorize(roles=["roles:read"])
-def get_role_by_name(role_name: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
-    role = role_service.get_role_by_name(role_name)
-    if not role:
-        raise NotFoundException(f"Role with name {role_name} not found")
 
     return Role(**role.model_dump())
 

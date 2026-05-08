@@ -1,18 +1,21 @@
+from pydantic import Field
+
 from app.models.base import CamelCaseModel
 
 
 class CreateRoleRequest(CamelCaseModel):
-    role_name: str
+    id: str
     path: str
-    permissions: list[str] = []
+    description: str
+    permissions: list[str] = Field(default_factory=list)
 
 
 class ReparentRoleRequest(CamelCaseModel):
-    new_parent_name: str
+    new_parent_id: str
 
 
 class UpdateRoleRequest(CamelCaseModel):
-    role_name: str | None = None
     path: str | None = None
+    description: str | None = None
     permissions: list[str] | None = None
     deleted_at: str | None = None
