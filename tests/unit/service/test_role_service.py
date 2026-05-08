@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 import pytest
 
@@ -209,6 +210,86 @@ class TestRoleService:
         assert get_by_path_mock.call_args_list[2].args == (
             "SUPER_ADMIN#REGIONAL_MGR#STORE_MGR",
         )
+
+    def test_get_role_lineage_with_existing_ancestors(
+        self, mocker, role_service: RoleService
+    ):
+        role_data: dict[str, Any] = {
+            "id": "manager_id",
+            "path": "root#admin#manager",
+            "description": "Manager role",
+            "permissions": ["read", "write"],
+            "created_at": datetime.now().isoformat(),
+        }
+
+        admin_role: dict[str, Any] = {
+            "id": "admin_id",
+            "path": "root#admin",
+            "description": "Admin role",
+            "permissions": ["read"],
+            "created_at": datetime.now().isoformat(),
+        }
+
+        root_role: dict[str, Any] = {
+            "id": "root_id",
+            "path": "root",
+            "description": "Root role",
+            "permissions": [],
+            "created_at": datetime.now().isoformat(),
+        }
+
+        mocker.patch.object(RoleRepository, "get_by_id", return_value=Role(**role_data))
+        mocker.patch.object(RoleRepository, "get_by_path").side_effect = lambda path: {
+            "root": Role(**root_role),
+            "root#admin": Role(**admin_role),
+            "root#admin#manager": Role(**role_data),
+        }.get(path)
+
+        lineage = role_service.get_role_lineage("manager_id")
+
+        assert len(lineage) == 3
+        assert lineage[0].id == "root_id"
+        assert lineage[1].id == "admin_id"
+        assert lineage[2].id == "manager_id"
+
+    def test_get_role_lineage_with_missing_ancestors(
+        self, mocker, role_service: RoleService
+    ):
+        role_data: dict[str, Any] = {
+            "id": "manager_id",
+            "path": "root#admin#manager",
+            "description": "Manager role",
+            "permissions": ["read", "write"],
+            "created_at": datetime.now().isoformat(),
+        }
+
+        mocker.patch.object(RoleRepository, "get_by_id", return_value=Role(**role_data))
+        root_role: dict[str, Any] = {
+            "id": "root_id",
+            "path": "root",
+            "description": "Root role",
+            "permissions": [],
+            "created_at": datetime.now().isoformat(),
+        }
+        mocker.patch.object(RoleRepository, "get_by_path").side_effect = lambda path: {
+            "root": Role(**root_role),
+            "root#admin": None,  # admin role doesn't exist
+            "root#admin#manager": Role(**role_data),
+        }.get(path)
+
+        lineage = role_service.get_role_lineage("manager_id")
+
+        assert len(lineage) == 2
+        assert lineage[0].id == "root_id"
+        assert lineage[1].id == "manager_id"
+        assert "admin_id" not in [r.id for r in lineage]
+
+    def test_get_role_lineage_empty_role(self, mocker, role_service: RoleService):
+        mocker.patch.object(RoleRepository, "get_by_id", return_value=None)
+
+        lineage = role_service.get_role_lineage("nonexistent_id")
+
+        assert lineage == []
 
     def test_get_effective_permissions_collects_inherited_permissions(
         self, mocker, role_service: RoleService

@@ -79,7 +79,9 @@ class RoleService:
             return []
 
         lineage: list[Role] = []
-        for lineage_path in self._build_lineage_paths(role.path):
+        lineage_paths = self._build_lineage_paths(role.path)
+
+        for lineage_path in lineage_paths:
             lineage_role = self._role_repository.get_by_path(lineage_path)
             if lineage_role:
                 lineage.append(lineage_role)

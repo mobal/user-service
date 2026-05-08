@@ -1,6 +1,7 @@
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import jwt
 import pytest
@@ -208,7 +209,7 @@ class TestRoleAPI:
     def test_successfully_get_role_by_name(
         self, test_client: TestClient, root_token: str, role: Role, roles_table
     ):
-        inherited_role = {
+        inherited_role: dict[str, Any] = {
             "id": "REGIONAL_MGR",
             "path": "SUPER_ADMIN#REGIONAL_MGR",
             "description": "Regional manager",
@@ -216,7 +217,7 @@ class TestRoleAPI:
             "created_at": role.created_at,
             "updated_at": role.updated_at,
         }
-        child_role = {
+        child_role: dict[str, Any] = {
             "id": "STORE_MGR",
             "path": "SUPER_ADMIN#REGIONAL_MGR#STORE_MGR",
             "description": "Store manager",
