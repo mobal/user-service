@@ -8,6 +8,7 @@ import pytest
 from argon2 import PasswordHasher
 from moto import mock_aws
 
+from app.models.role import Role
 from app.models.user import User
 from app.settings import Settings
 
@@ -119,3 +120,58 @@ def users_table(dynamodb_resource, initialize_users_table, users_table_name: str
 @pytest.fixture
 def users_table_name() -> str:
     return f"{os.getenv('STAGE')}-users"
+
+
+@pytest.fixture
+def role_dict() -> dict[str, Any]:
+    now = datetime.now(tz=UTC).isoformat()
+    return {
+        "role_name": "root",
+        "path": "/admin",
+        "permissions": ["roles:read", "roles:write"],
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+@pytest.fixture
+def role(role_dict: dict[str, Any]) -> Role:
+    return Role(
+        id=str(uuid.uuid4()),
+        **role_dict,
+    )
+
+
+@pytest.fixture
+def initialize_roles_table(dynamodb_resource, role: Role, roles_table_name: str):
+    roles_table = dynamodb_resource.create_table(
+        AttributeDefinitions=[
+            {"AttributeName": "id", "AttributeType": "S"},
+            {"AttributeName": "role_name", "AttributeType": "S"},
+        ],
+        TableName=roles_table_name,
+        KeySchema=[{"AttributeName": "id", "KeyType": "HASH"}],
+        GlobalSecondaryIndexes=[
+            {
+                "IndexName": "RoleNameIndex",
+                "KeySchema": [
+                    {"AttributeName": "role_name", "KeyType": "HASH"},
+                ],
+                "Projection": {
+                    "ProjectionType": "ALL",
+                },
+            },
+        ],
+        ProvisionedThroughput={"ReadCapacityUnits": 1, "WriteCapacityUnits": 1},
+    )
+    roles_table.put_item(Item=role.model_dump())
+
+
+@pytest.fixture
+def roles_table(dynamodb_resource, initialize_roles_table, roles_table_name: str):
+    return dynamodb_resource.Table(roles_table_name)
+
+
+@pytest.fixture
+def roles_table_name() -> str:
+    return f"{os.getenv('STAGE')}-roles"
