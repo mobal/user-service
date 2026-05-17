@@ -66,6 +66,20 @@ class TestUserAPI:
         )
 
     @pytest.fixture
+    def scope_token(self) -> str:
+        now = datetime.now(UTC)
+        payload = {
+            "exp": int((now + timedelta(hours=1)).timestamp()),
+            "iat": int(now.timestamp()),
+            "jti": str(uuid.uuid4()),
+            "sub": "scope-user",
+            "scope": "users:read users:write",
+        }
+        return jwt.encode(
+            payload, os.getenv("JWT_SECRET_SSM_PARAM_VALUE"), algorithm="HS256"
+        )
+
+    @pytest.fixture
     def expired_root_token(self) -> str:
         now = datetime.now(UTC)
         payload = {
@@ -162,6 +176,35 @@ class TestUserAPI:
         assert isinstance(body["timestamp"], int)
         assert isinstance(body["errors"], list)
         assert body["errors"]
+
+    def test_register_user_returns_422_for_invalid_email(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "not-an-email",
+                "username": "newuser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        self._assert_error_response(response, status.HTTP_422_UNPROCESSABLE_CONTENT)
+
+    def test_register_user_returns_422_for_missing_required_fields(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.post(
+            "/api/v1/users",
+            json={},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        self._assert_error_response(response, status.HTTP_422_UNPROCESSABLE_CONTENT)
 
     def test_register_user_returns_403_for_invalid_signature_token(
         self, test_client: TestClient, invalid_signature_token: str
@@ -340,6 +383,28 @@ class TestUserAPI:
         assert response.status_code == status.HTTP_200_OK
         self._assert_user_response_body(response.json(), user)
 
+    def test_successfully_get_user_by_id_with_scope_token(
+        self, test_client: TestClient, scope_token: str, user: User
+    ):
+        response = test_client.get(
+            f"/api/v1/users/{user.id}",
+            headers={"Authorization": f"Bearer {scope_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        self._assert_user_response_body(response.json(), user)
+
+    def test_get_user_by_id_returns_403_without_read_role(
+        self, test_client: TestClient, user_token: str, user: User
+    ):
+        response = test_client.get(
+            f"/api/v1/users/{user.id}",
+            headers={"Authorization": f"Bearer {user_token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
+
     def test_get_user_by_id_returns_403_with_invalid_token_query_param(
         self, test_client: TestClient, user: User
     ):
@@ -347,6 +412,17 @@ class TestUserAPI:
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
+
+    def test_get_user_by_id_returns_404_for_unknown_user_id(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.get(
+            f"/api/v1/users/{uuid.uuid4()}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
 
     def test_successfully_get_users(
         self, test_client: TestClient, root_token: str, user: User
@@ -407,6 +483,67 @@ class TestUserAPI:
         assert isinstance(body["items"], list)
         assert len(body["items"]) == 1
         self._assert_user_response_body(body["items"][0], user)
+
+    def test_successfully_get_users_with_email_filter(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        response = test_client.get(
+            f"/api/v1/users?email={user.email}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["nextKey"] is None
+        assert len(body["items"]) == 1
+        self._assert_user_response_body(body["items"][0], user)
+
+    def test_successfully_get_users_with_display_name_filter(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        response = test_client.get(
+            f"/api/v1/users?displayName={user.display_name}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["nextKey"] is None
+        assert len(body["items"]) == 1
+        self._assert_user_response_body(body["items"][0], user)
+
+    def test_get_users_returns_empty_list_when_filter_does_not_match(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.get(
+            "/api/v1/users?username=missing-user",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"items": [], "nextKey": None}
+
+    def test_get_users_returns_422_for_invalid_limit(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.get(
+            "/api/v1/users?limit=0",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        self._assert_error_response(response, status.HTTP_422_UNPROCESSABLE_CONTENT)
+
+    def test_get_users_returns_422_for_unknown_filter(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.get(
+            "/api/v1/users?unknown=value",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        self._assert_error_response(response, status.HTTP_422_UNPROCESSABLE_CONTENT)
 
     def test_successfully_update_user(
         self, test_client: TestClient, root_token: str, user: User
@@ -501,6 +638,20 @@ class TestUserAPI:
         self._assert_user_response_body(body, user)
         assert "password" not in body
 
+    def test_successfully_validate_user_updates_last_login_at(
+        self, test_client: TestClient, root_token: str, user: User, password: str
+    ):
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={"password": password},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["lastLoginAt"] is not None
+        assert datetime.fromisoformat(body["lastLoginAt"])
+
     def test_validate_user_returns_403_without_token(
         self, test_client: TestClient, user: User
     ):
@@ -547,3 +698,15 @@ class TestUserAPI:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         self._assert_error_response(response, status.HTTP_400_BAD_REQUEST)
+
+    def test_validate_user_returns_422_without_password(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        self._assert_error_response(response, status.HTTP_422_UNPROCESSABLE_CONTENT)
