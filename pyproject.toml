@@ -34,7 +34,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--cache-clear --cov-branch --cov-report term --cov=app/ -n 4 -r f"
+addopts = "--cache-clear --cov-branch --cov-report term --cov=app/ -n 8 -r f"
 env = [
     "APP_NAME=user-service",
     "AWS_ACCESS_KEY_ID=access_key_id",
