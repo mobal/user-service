@@ -14,7 +14,9 @@ class TestRoleService:
     def role_service(self) -> RoleService:
         return RoleService()
 
-    def test_successfully_create_role(self, mocker, role_service: RoleService):
+    def test_successfully_create_role(
+        self, mocker, role_service: RoleService, role: Role
+    ):
         create_role_mock = mocker.patch.object(RoleRepository, "create_role")
 
         result = role_service.create_role(
@@ -92,6 +94,56 @@ class TestRoleService:
         assert payload["description"] == "Updated root role"
         assert datetime.fromisoformat(payload["updated_at"])
 
+    def test_update_role_without_path_does_not_validate_path(
+        self, mocker, role: Role, role_service: RoleService
+    ):
+        """Test that update_role works when no path is provided (line 61-64 coverage)."""
+        update_role_mock = mocker.patch.object(
+            RoleRepository, "update_role", return_value=role.model_dump()
+        )
+
+        # Update without providing path - should not trigger path validation
+        role_service.update_role(role.id, {"description": "Updated description"})
+
+        update_role_mock.assert_called_once()
+        payload = update_role_mock.call_args.args[1]
+        assert payload["description"] == "Updated description"
+        assert "path" not in payload or payload.get("path") is None
+
+    def test_update_role_with_valid_path_validates_successfully(
+        self, mocker, role: Role, role_service: RoleService
+    ):
+        update_role_mock = mocker.patch.object(
+            RoleRepository, "update_role", return_value=role.model_dump()
+        )
+
+        role_service.update_role(
+            role.id,
+            {"path": role.id, "description": "Updated root role"},
+        )
+
+        update_role_mock.assert_called_once()
+
+    def test_update_role_rejects_invalid_path_with_non_empty_segments(
+        self, role_service: RoleService
+    ):
+        """Test that update_role with invalid path rejects (line 37 coverage)."""
+        with pytest.raises(BadRequestException, match="Role path must contain"):
+            role_service.update_role(
+                "role-id",
+                {"path": "#INVALID", "description": "Invalid"},
+            )
+
+    def test_update_role_rejects_invalid_path_not_ending_with_role_id(
+        self, role_service: RoleService
+    ):
+        """Test that update_role rejects path not ending with role_id."""
+        with pytest.raises(BadRequestException, match="Role path must end"):
+            role_service.update_role(
+                "STORE_MGR",
+                {"path": "SUPER_ADMIN", "description": "Invalid"},
+            )
+
     def test_successfully_get_role_by_id(
         self, mocker, role: Role, role_service: RoleService
     ):
@@ -134,6 +186,31 @@ class TestRoleService:
 
         assert result is None
 
+    def test_successfully_get_role_by_path(
+        self, mocker, role: Role, role_service: RoleService
+    ):
+        """Test get_role_by_path method (line 71 coverage)."""
+        get_by_path_mock = mocker.patch.object(
+            RoleRepository, "get_by_path", return_value=role
+        )
+
+        result = role_service.get_role_by_path("SUPER_ADMIN#REGIONAL_MGR")
+
+        assert result == role
+        get_by_path_mock.assert_called_once_with("SUPER_ADMIN#REGIONAL_MGR")
+
+    def test_get_role_by_path_returns_none_for_missing_role(
+        self, mocker, role_service: RoleService
+    ):
+        get_by_path_mock = mocker.patch.object(
+            RoleRepository, "get_by_path", return_value=None
+        )
+
+        result = role_service.get_role_by_path("MISSING_PATH")
+
+        assert result is None
+        get_by_path_mock.assert_called_once_with("MISSING_PATH")
+
     def test_get_inherited_roles_by_name_returns_role_and_parents(
         self, mocker, role_service: RoleService
     ):
@@ -169,6 +246,16 @@ class TestRoleService:
         result = role_service.get_inherited_roles_by_name("STORE_MGR")
 
         assert result == (store_role, [super_admin_role, regional_role])
+
+    def test_get_inherited_roles_by_name_returns_none_when_role_not_found(
+        self, mocker, role_service: RoleService
+    ):
+        """Test get_inherited_roles_by_name when role not found (line 96 coverage)."""
+        mocker.patch.object(RoleRepository, "get_by_name", return_value=None)
+
+        result = role_service.get_inherited_roles_by_name("MISSING_ROLE")
+
+        assert result is None
 
     def test_get_role_lineage_returns_ancestors_in_order(
         self, mocker, role_service: RoleService
@@ -318,3 +405,35 @@ class TestRoleService:
         result = role_service.get_effective_permissions(["STORE_MGR"])
 
         assert result == {"roles:write", "stores:write"}
+
+    def test_extract_role_name_succeeds(self, role_service: RoleService):
+        """Test _extract_role_name static method."""
+        path = "SUPER_ADMIN#REGIONAL_MGR#STORE_MGR"
+        result = RoleService._extract_role_name(path)
+
+        assert result == "STORE_MGR"
+
+    def test_extract_role_name_with_single_segment(self, role_service: RoleService):
+        """Test _extract_role_name with single segment path."""
+        path = "SUPER_ADMIN"
+        result = RoleService._extract_role_name(path)
+
+        assert result == "SUPER_ADMIN"
+
+    def test_build_lineage_paths_returns_full_paths(self, role_service: RoleService):
+        """Test _build_lineage_paths static method."""
+        path = "SUPER_ADMIN#REGIONAL_MGR#STORE_MGR"
+        result = RoleService._build_lineage_paths(path)
+
+        assert result == [
+            "SUPER_ADMIN",
+            "SUPER_ADMIN#REGIONAL_MGR",
+            "SUPER_ADMIN#REGIONAL_MGR#STORE_MGR",
+        ]
+
+    def test_build_lineage_paths_with_single_segment(self, role_service: RoleService):
+        """Test _build_lineage_paths with single segment."""
+        path = "SUPER_ADMIN"
+        result = RoleService._build_lineage_paths(path)
+
+        assert result == ["SUPER_ADMIN"]

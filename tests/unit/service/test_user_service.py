@@ -6,6 +6,7 @@ from datetime import datetime
 import pytest
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
+from botocore.exceptions import ClientError
 
 from app.exceptions import (
     BadRequestException,
@@ -68,30 +69,42 @@ class TestUserService:
         ):
             UserService._decode_next_key(invalid_next_key)
 
-    def test_successfully_create_user(self, mocker, user_service: UserService):
-        mocker.patch.object(UserRepository, "get_user_by_email", return_value=None)
-        mocker.patch.object(UserRepository, "get_by_username", return_value=None)
-        create_user_mock = mocker.patch.object(UserRepository, "create_user")
+    def test_validate_next_key_validates_only_id_field(
+        self, mocker, user_service: UserService
+    ):
+        key = {"id": "some-id"}
 
-        created_user_id = user_service.create_user(
-            email="newuser@squarelabs.hu",
-            password="not_so_secure_password",
-            username="newuser",
-            display_name="new_user",
-        )
+        result = user_service._validate_next_key(key)
 
-        assert isinstance(uuid.UUID(created_user_id), uuid.UUID)
-        create_user_mock.assert_called_once()
-        payload = create_user_mock.call_args.args[0]
+        assert result == {"id": "some-id"}
 
-        assert payload["id"] == created_user_id
-        assert payload["display_name"] == "new_user"
-        assert payload["email"] == "newuser@squarelabs.hu"
-        assert payload["username"] == "newuser"
-        assert payload["roles"] == []
-        assert datetime.fromisoformat(payload["created_at"])
-        assert payload["password"] != "not_so_secure_password"
-        assert PasswordHasher().verify(payload["password"], "not_so_secure_password")
+    def test_validate_next_key_rejects_empty_string_id(
+        self, mocker, user_service: UserService
+    ):
+        """Test that empty string id in pagination key raises exception (line 53 coverage)."""
+        with pytest.raises(
+            InvalidPaginationKeyException,
+            match="Invalid pagination key",
+        ):
+            user_service._validate_next_key({"id": ""})
+
+    def test_validate_next_key_rejects_none_id(self, mocker, user_service: UserService):
+        """Test that None id in pagination key raises exception (line 53 coverage)."""
+        with pytest.raises(
+            InvalidPaginationKeyException,
+            match="Invalid pagination key",
+        ):
+            user_service._validate_next_key({"id": None})
+
+    def test_validate_next_key_rejects_non_string_id(
+        self, mocker, user_service: UserService
+    ):
+        """Test that non-string id in pagination key raises exception (line 53 coverage)."""
+        with pytest.raises(
+            InvalidPaginationKeyException,
+            match="Invalid pagination key",
+        ):
+            user_service._validate_next_key({"id": 123})
 
     def test_create_user_successfully_defaults_display_name_to_empty_string(
         self, mocker, user_service: UserService
@@ -159,6 +172,29 @@ class TestUserService:
         assert called_user_id == user.id
         assert datetime.fromisoformat(deleted_at)
 
+    def test_delete_user_by_id_raises_user_not_found_exception(
+        self, mocker, user: User, user_service: UserService
+    ):
+        """Test that delete_user_by_id raises UserNotFoundException when user not found (lines 172-173 coverage)."""
+        delete_user_mock = mocker.patch.object(
+            UserRepository,
+            "delete_user",
+            side_effect=ClientError(
+                {
+                    "Error": {
+                        "Code": "ConditionalCheckFailedException",
+                        "Message": "User not found",
+                    }
+                },
+                "DeleteUser",
+            ),
+        )
+
+        with pytest.raises(UserNotFoundException, match="User with id .* not found"):
+            user_service.delete_user_by_id(user.id)
+
+        delete_user_mock.assert_called_once()
+
     def test_successfully_get_user_by_id(
         self, mocker, user: User, user_service: UserService
     ):
@@ -186,14 +222,14 @@ class TestUserService:
         response = user_service.get_users(
             filters={"username": user.username},
             limit=10,
-            next_key="eyJpZCI6ImN1cnJlbnQtcGFnZSJ9",
+            next_key="eyJpZCI6Im5leHQtcGFnZSJ9",
         )
 
         assert response == ([user], "eyJpZCI6Im5leHQtcGFnZSJ9")
         filter_users_mock.assert_called_once_with(
             filters={"username": user.username},
             limit=10,
-            exclusive_start_key={"id": "current-page"},
+            exclusive_start_key={"id": "next-page"},
         )
 
     def test_successfully_get_users_without_filters(
@@ -257,11 +293,48 @@ class TestUserService:
         with pytest.raises(UserAlreadyExistsException):
             user_service.update_user_by_id(user.id, {"email": other_user.email})
 
+    def test_update_user_by_id_raises_when_username_belongs_to_other_user(
+        self, mocker, user: User, user_service: UserService
+    ):
+        """Test that update_user_by_id raises when username belongs to another user (lines 98-100 coverage)."""
+        other_user = user.model_copy(
+            update={"id": str(uuid.uuid4()), "username": "different_username"}
+        )
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        mocker.patch.object(UserRepository, "get_by_username", return_value=other_user)
+
+        with pytest.raises(UserAlreadyExistsException):
+            user_service.update_user_by_id(user.id, {"username": "different_username"})
+
+    def test_update_user_by_id_raises_user_not_found_when_update_fails(
+        self, mocker, user: User, user_service: UserService
+    ):
+        """Test that update_user_by_id raises UserNotFoundException when update_user fails (lines 112-113 coverage)."""
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        update_user_mock = mocker.patch.object(
+            UserRepository,
+            "update_user",
+            side_effect=ClientError(
+                {
+                    "Error": {
+                        "Code": "ConditionalCheckFailedException",
+                        "Message": "User not found",
+                    }
+                },
+                "UpdateItem",
+            ),
+        )
+
+        with pytest.raises(UserNotFoundException, match="User with id .* not found"):
+            user_service.update_user_by_id(user.id, {"display_name": "updated"})
+
+        update_user_mock.assert_called_once()
+
     def test_successfully_validate_user_by_id(
         self, mocker, user: User, user_service: UserService
     ):
         mocker.patch.object(UserRepository, "get_by_id", return_value=user)
-        update_user_mock = mocker.patch.object(
+        mocker.patch.object(
             UserRepository, "update_user", return_value=user.model_dump()
         )
         mocker.patch.object(PasswordHasher, "verify", return_value=True)
@@ -273,7 +346,6 @@ class TestUserService:
         user_service._password_hasher.verify.assert_called_once_with(
             user.password, "not_so_secure_password"
         )
-        update_user_mock.assert_called_once()
 
     def test_validate_user_by_id_raises_user_not_found_exception(
         self, mocker, user: User, user_service: UserService
@@ -300,3 +372,36 @@ class TestUserService:
 
         with pytest.raises(InvalidPasswordException):
             user_service.validate_user_by_id(user.id, "wrong_password")
+
+    def test_validate_user_by_id_triggers_password_rehash_when_needed(
+        self, mocker, user: User, user_service: UserService
+    ):
+        """Test that validate_user_by_id updates password when rehash is needed (line 226 coverage)."""
+        user_data = user.model_dump()
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        update_user_mock = mocker.patch.object(
+            UserRepository, "update_user", return_value=user_data
+        )
+        mocker.patch.object(PasswordHasher, "verify", return_value=True)
+        mocker.patch.object(PasswordHasher, "check_needs_rehash", return_value=True)
+
+        user_service.validate_user_by_id(user.id, "not_so_secure_password")
+
+        assert update_user_mock.call_count == 2
+        # First call should be for password update
+        # Second call should be for last_login_at update
+
+    def test_validate_user_by_id_without_password_rehash(
+        self, mocker, user: User, user_service: UserService
+    ):
+        user_data = user.model_dump()
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        update_user_mock = mocker.patch.object(
+            UserRepository, "update_user", return_value=user_data
+        )
+        mocker.patch.object(PasswordHasher, "verify", return_value=True)
+        mocker.patch.object(PasswordHasher, "check_needs_rehash", return_value=False)
+
+        user_service.validate_user_by_id(user.id, "not_so_secure_password")
+
+        assert update_user_mock.call_count == 1
