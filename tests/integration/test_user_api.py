@@ -375,14 +375,6 @@ class TestUserAPI:
         assert response.status_code == status.HTTP_403_FORBIDDEN
         self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
-    def test_successfully_get_user_by_id_with_token_query_param(
-        self, test_client: TestClient, root_token: str, user: User
-    ):
-        response = test_client.get(f"/api/v1/users/{user.id}?token={root_token}")
-
-        assert response.status_code == status.HTTP_200_OK
-        self._assert_user_response_body(response.json(), user)
-
     def test_successfully_get_user_by_id_with_scope_token(
         self, test_client: TestClient, scope_token: str, user: User
     ):
@@ -401,14 +393,6 @@ class TestUserAPI:
             f"/api/v1/users/{user.id}",
             headers={"Authorization": f"Bearer {user_token}"},
         )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
-
-    def test_get_user_by_id_returns_403_with_invalid_token_query_param(
-        self, test_client: TestClient, user: User
-    ):
-        response = test_client.get(f"/api/v1/users/{user.id}?token=not-a-valid-jwt")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
@@ -727,3 +711,147 @@ class TestUserAPI:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
+
+    def test_register_user_with_scope_token(
+        self, test_client: TestClient, scope_token: str
+    ):
+        """Test registering a user using scope-based authorization."""
+        response = test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "scopeuser@squarelabs.hu",
+                "username": "scopeuser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {scope_token}"},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert "location" in response.headers
+        assert response.headers["location"].startswith("/users/")
+
+    def test_register_user_normalizes_email_to_lowercase(
+        self, test_client: TestClient, root_token: str
+    ):
+        """Test that registering with uppercase email normalizes to lowercase."""
+        response = test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "MIXEDCASE@SQUARELABS.HU",
+                "username": "mixedcaseuser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        location = response.headers["location"]
+        user_id = location.split("/")[-1]
+
+        # Fetch the user to verify the email was stored lowercase
+        get_response = test_client.get(
+            f"/api/v1/users/{user_id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert get_response.status_code == status.HTTP_200_OK
+        assert get_response.json()["email"] == "mixedcase@squarelabs.hu"
+
+    def test_update_user_returns_409_for_duplicate_username(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        """Test updating a user with a username that belongs to another user."""
+        # First create another user
+        create_response = test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "otheruser@squarelabs.hu",
+                "username": "otheruser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        # Try updating the original user with the other user's username
+        response = test_client.put(
+            f"/api/v1/users/{user.id}",
+            json={"username": "otheruser"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        self._assert_error_response(response, status.HTTP_409_CONFLICT)
+
+    def test_update_user_does_not_raise_conflict_for_same_email(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        """Test updating a user with their own email does not raise conflict."""
+        response = test_client.put(
+            f"/api/v1/users/{user.id}",
+            json={"email": user.email, "displayName": "Updated Name"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_update_user_does_not_raise_conflict_for_same_username(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        """Test updating a user with their own username does not raise conflict."""
+        response = test_client.put(
+            f"/api/v1/users/{user.id}",
+            json={"username": user.username, "displayName": "Updated Name"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_delete_user_returns_404_for_already_deleted_user(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        """Test deleting an already soft-deleted user returns 404."""
+        # First delete
+        response = test_client.delete(
+            f"/api/v1/users/{user.id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        # Second delete should fail
+        response = test_client.delete(
+            f"/api/v1/users/{user.id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
+
+    def test_validate_user_returns_403_with_expired_token(
+        self, test_client: TestClient, expired_root_token: str, user: User
+    ):
+        """Test validate endpoint returns 403 with expired token."""
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={"password": "not_so_secure_password"},
+            headers={"Authorization": f"Bearer {expired_root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
+
+    def test_validate_user_returns_403_with_invalid_signature_token(
+        self, test_client: TestClient, invalid_signature_token: str, user: User
+    ):
+        """Test validate endpoint returns 403 with invalid signature token."""
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={"password": "not_so_secure_password"},
+            headers={"Authorization": f"Bearer {invalid_signature_token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)

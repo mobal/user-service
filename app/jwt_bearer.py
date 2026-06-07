@@ -26,14 +26,16 @@ class HTTPBearer(FastAPIHTTPBearer):
 
         if authorization is not None:
             return self._get_authorization_credentials_from_header(authorization)
-        else:
-            logger.info(
-                "Missing authentication header, attempt to use token query param"
+
+        logger.warning("Missing authorization header")
+
+        if self._auto_error:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=ERROR_MESSAGE_NOT_AUTHENTICATED,
             )
 
-            return self._get_authorization_credentials_from_token(
-                request.query_params.get("token")
-            )
+        return None
 
     def _get_authorization_credentials_from_header(
         self, authorization: str
@@ -62,19 +64,6 @@ class HTTPBearer(FastAPIHTTPBearer):
 
         return HTTPAuthorizationCredentials(scheme=scheme, credentials=credentials)
 
-    def _get_authorization_credentials_from_token(
-        self, token: str | None
-    ) -> HTTPAuthorizationCredentials | None:
-        if not token:
-            if self._auto_error:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=ERROR_MESSAGE_NOT_AUTHENTICATED,
-                )
-            else:
-                return None
-
-        return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
 
 class JWTBearer:
