@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     aws_secret_access_key: str
     debug: bool = False
     stage: str
+    rate_limiting: bool = False
+    rate_limit_requests: int = 100
+    rate_limit_duration_in_seconds: int = 60
 
     @computed_field
     @property
