@@ -100,3 +100,18 @@ class RoleRepository:
                 return None
 
             scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+
+    def get_roles_by_paths(self, paths: list[str]) -> list[Role]:
+        if not paths:
+            return []
+
+        import operator
+        from functools import reduce
+
+        conditions = reduce(
+            operator.or_, [Attr("path").eq(path) for path in paths]
+        )
+        response = self._table.scan(
+            FilterExpression=self._ACTIVE_FILTER & conditions,
+        )
+        return [Role(**item) for item in response.get("Items", [])]

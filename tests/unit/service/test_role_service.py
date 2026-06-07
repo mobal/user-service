@@ -347,20 +347,15 @@ class TestRoleService:
         )
 
         mocker.patch.object(RoleRepository, "get_by_id", return_value=store_role)
-        get_by_path_mock = mocker.patch.object(
+        mocker.patch.object(
             RoleRepository,
-            "get_by_path",
-            side_effect=[super_admin_role, regional_role, store_role],
+            "get_roles_by_paths",
+            return_value=[super_admin_role, regional_role, store_role],
         )
 
         result = role_service.get_role_lineage(store_role.id)
 
         assert result == [super_admin_role, regional_role, store_role]
-        assert get_by_path_mock.call_args_list[0].args == ("SUPER_ADMIN",)
-        assert get_by_path_mock.call_args_list[1].args == ("SUPER_ADMIN#REGIONAL_MGR",)
-        assert get_by_path_mock.call_args_list[2].args == (
-            "SUPER_ADMIN#REGIONAL_MGR#STORE_MGR",
-        )
 
     def test_get_role_lineage_with_existing_ancestors(
         self, mocker, role_service: RoleService
@@ -390,11 +385,11 @@ class TestRoleService:
         }
 
         mocker.patch.object(RoleRepository, "get_by_id", return_value=Role(**role_data))
-        mocker.patch.object(RoleRepository, "get_by_path").side_effect = lambda path: {
-            "root": Role(**root_role),
-            "root#admin": Role(**admin_role),
-            "root#admin#manager": Role(**role_data),
-        }.get(path)
+        mocker.patch.object(
+            RoleRepository,
+            "get_roles_by_paths",
+            return_value=[Role(**root_role), Role(**admin_role), Role(**role_data)],
+        )
 
         lineage = role_service.get_role_lineage("manager_id")
 
@@ -422,11 +417,11 @@ class TestRoleService:
             "permissions": [],
             "created_at": datetime.now().isoformat(),
         }
-        mocker.patch.object(RoleRepository, "get_by_path").side_effect = lambda path: {
-            "root": Role(**root_role),
-            "root#admin": None,  # admin role doesn't exist
-            "root#admin#manager": Role(**role_data),
-        }.get(path)
+        mocker.patch.object(
+            RoleRepository,
+            "get_roles_by_paths",
+            return_value=[Role(**root_role), Role(**role_data)],
+        )
 
         lineage = role_service.get_role_lineage("manager_id")
 

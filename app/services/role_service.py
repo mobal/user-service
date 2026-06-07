@@ -86,11 +86,13 @@ class RoleService:
         if not role:
             return []
 
-        lineage: list[Role] = []
         lineage_paths = self._build_lineage_paths(role.path)
+        lineage_roles = self._role_repository.get_roles_by_paths(lineage_paths)
 
+        lineage: list[Role] = []
+        path_to_role = {r.path: r for r in lineage_roles}
         for lineage_path in lineage_paths:
-            lineage_role = self._role_repository.get_by_path(lineage_path)
+            lineage_role = path_to_role.get(lineage_path)
             if lineage_role:
                 lineage.append(lineage_role)
             else:
