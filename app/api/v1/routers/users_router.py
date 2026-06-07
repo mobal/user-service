@@ -56,7 +56,7 @@ def get_user_by_id(
 ):
     user = user_service.get_user_by_id(user_id)
 
-    return UserResponse(**user.model_dump())
+    return UserResponse(**user.model_dump(exclude={"password"}))
 
 
 @router.get("/users")
@@ -78,7 +78,7 @@ def get_users(
     )
 
     return UsersPage(
-        items=[UserResponse(**user.model_dump()) for user in users],
+        items=[UserResponse(**user.model_dump(exclude={"password"})) for user in users],
         next_key=next_key,
     )
 
@@ -104,4 +104,4 @@ def validate_user(
 ):
     user = user_service.validate_user_by_id(user_id, body.password)
 
-    return UserResponse(**user.model_dump())
+    return UserResponse(**user.model_dump(exclude={"password"}))

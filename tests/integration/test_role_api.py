@@ -172,7 +172,7 @@ class TestRoleAPI:
         )
 
         assert response.status_code == status.HTTP_200_OK
-        self._assert_role_response_body(response.json(), role)
+        self._assert_role_response_body(response.json(), role, inherited_roles=[])
 
     def test_get_role_by_id_returns_404_for_unknown_role(
         self, test_client: TestClient, root_token: str

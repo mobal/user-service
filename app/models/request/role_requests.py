@@ -10,10 +10,6 @@ class CreateRoleRequest(RequestModel):
     permissions: list[str] = Field(default_factory=list)
 
 
-class ReparentRoleRequest(RequestModel):
-    new_parent_id: str
-
-
 class UpdateRoleRequest(RequestModel):
     path: str | None = None
     description: str | None = None

@@ -8,7 +8,6 @@ from app.exceptions import NotFoundException
 from app.jwt_bearer import JWTToken
 from app.models.request.role_requests import CreateRoleRequest, UpdateRoleRequest
 from app.models.response.role import RoleWithInheritanceResponse
-from app.models.role import Role
 from app.security.authorization import pre_authorize
 from app.services.role_service import RoleService
 
@@ -68,7 +67,15 @@ def get_role_by_id(
     if not role:
         raise NotFoundException(f"Role with id {role_id} not found")
 
-    return Role(**role.model_dump())
+    role_with_inheritance = role_service.get_inherited_roles_by_name(
+        RoleService._extract_role_name(role.path)
+    )
+    if not role_with_inheritance:
+        raise NotFoundException(f"Role with id {role_id} not found")
+
+    _role, inherited_roles = role_with_inheritance
+
+    return RoleWithInheritanceResponse.from_role(_role, inherited_roles)
 
 
 @router.put("/roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
