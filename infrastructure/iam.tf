@@ -62,7 +62,7 @@ resource "aws_iam_policy" "lambda_policy" {
         Action   = [
           "ssm:GetParameter",
         ]
-        Resource = "*"
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.jwt_secret_ssm_param_name}"
       }
     ]
   })

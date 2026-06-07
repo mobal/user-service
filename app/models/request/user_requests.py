@@ -1,14 +1,14 @@
-from pydantic import EmailStr, ValidationInfo, field_validator
+from pydantic import EmailStr, Field, ValidationInfo, field_validator
 
 from app.models.base import RequestModel
 
 
 class CreateUserRequest(RequestModel):
     email: EmailStr
-    username: str
-    password: str
+    username: str = Field(min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_-]+$")
+    password: str = Field(min_length=8, max_length=128)
     confirm_password: str
-    display_name: str | None = None
+    display_name: str | None = Field(default=None, min_length=1, max_length=100)
 
     @field_validator("confirm_password", mode="after")
     @staticmethod
@@ -22,9 +22,9 @@ class CreateUserRequest(RequestModel):
 
 
 class UpdateUserRequest(RequestModel):
-    display_name: str | None = None
+    display_name: str | None = Field(default=None, min_length=1, max_length=100)
     email: EmailStr | None = None
-    username: str | None = None
+    username: str | None = Field(default=None, min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_-]+$")
 
 
 class ValidateUserRequest(RequestModel):
