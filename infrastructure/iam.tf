@@ -31,7 +31,8 @@ resource "aws_iam_policy" "lambda_policy" {
         ]
         Resource = [
           aws_dynamodb_table.users.arn,
-          "${aws_dynamodb_table.users.arn}/index/EmailIndex"
+          "${aws_dynamodb_table.users.arn}/index/EmailIndex",
+          "${aws_dynamodb_table.users.arn}/index/UsernameIndex"
         ]
       },
       {
