@@ -32,7 +32,7 @@ class TestUserAPI:
         assert body["updatedAt"] == user.updated_at
 
     @pytest.fixture
-    def test_client(self, initialize_users_table) -> TestClient:
+    def test_client(self, initialize_users_table, initialize_roles_table) -> TestClient:
         from app.api_handler import app
 
         return TestClient(app, raise_server_exceptions=True)
