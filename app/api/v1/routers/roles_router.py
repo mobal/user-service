@@ -3,8 +3,9 @@ from typing import Annotated
 from aws_lambda_powertools.logging import Logger
 from fastapi import APIRouter, Depends, Response, status
 
+from app.dependencies import get_jwt_bearer, get_role_service
 from app.exceptions import NotFoundException
-from app.jwt_bearer import JWTBearer, JWTToken
+from app.jwt_bearer import JWTToken
 from app.models.request.role_requests import CreateRoleRequest, UpdateRoleRequest
 from app.models.response.role import RoleWithInheritanceResponse
 from app.models.role import Role
@@ -13,14 +14,14 @@ from app.services.role_service import RoleService
 
 logger = Logger()
 router = APIRouter()
-role_service = RoleService()
-jwt_bearer = JWTBearer()
 
 
 @router.post("/roles", status_code=status.HTTP_201_CREATED)
 @pre_authorize(roles=["roles:write"])
 def create_role(
-    body: CreateRoleRequest, token: Annotated[JWTToken, Depends(jwt_bearer)]
+    body: CreateRoleRequest,
+    token: Annotated[JWTToken, Depends(get_jwt_bearer)],
+    role_service: Annotated[RoleService, Depends(get_role_service)],
 ):
     role = role_service.create_role(body.model_dump(exclude_none=True))
 
@@ -32,13 +33,21 @@ def create_role(
 
 @router.delete("/roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
 @pre_authorize(roles=["roles:write"])
-def delete_role(role_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
+def delete_role(
+    role_id: str,
+    token: Annotated[JWTToken, Depends(get_jwt_bearer)],
+    role_service: Annotated[RoleService, Depends(get_role_service)],
+):
     role_service.delete_role(role_id)
 
 
 @router.get("/roles/name/{role_name}")
 @pre_authorize(roles=["roles:read"])
-def get_role_by_name(role_name: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
+def get_role_by_name(
+    role_name: str,
+    token: Annotated[JWTToken, Depends(get_jwt_bearer)],
+    role_service: Annotated[RoleService, Depends(get_role_service)],
+):
     role_with_inheritance = role_service.get_inherited_roles_by_name(role_name)
     if not role_with_inheritance:
         raise NotFoundException(f"Role with name {role_name} not found")
@@ -50,7 +59,11 @@ def get_role_by_name(role_name: str, token: Annotated[JWTToken, Depends(jwt_bear
 
 @router.get("/roles/{role_id}")
 @pre_authorize(roles=["roles:read"])
-def get_role_by_id(role_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
+def get_role_by_id(
+    role_id: str,
+    token: Annotated[JWTToken, Depends(get_jwt_bearer)],
+    role_service: Annotated[RoleService, Depends(get_role_service)],
+):
     role = role_service.get_role_by_id(role_id)
     if not role:
         raise NotFoundException(f"Role with id {role_id} not found")
@@ -63,6 +76,7 @@ def get_role_by_id(role_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]
 def update_role(
     role_id: str,
     body: UpdateRoleRequest,
-    token: Annotated[JWTToken, Depends(jwt_bearer)],
+    token: Annotated[JWTToken, Depends(get_jwt_bearer)],
+    role_service: Annotated[RoleService, Depends(get_role_service)],
 ) -> None:
     role_service.update_role(role_id, body.model_dump(exclude_none=True))
