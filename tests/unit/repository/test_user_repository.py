@@ -191,6 +191,58 @@ class TestUserRepository:
         assert items == [User(**matching_user)]
         assert next_key is None
 
+    def test_filter_users_returns_empty_when_no_match(
+        self, users_table, user_repository: UserRepository
+    ):
+        items, next_key = user_repository.filter_users(
+            {"display_name": "nonexistent"}, limit=10
+        )
+
+        assert items == []
+        assert next_key is None
+
+    def test_filter_users_with_exclusive_start_key(
+        self, users_table, user_repository: UserRepository
+    ):
+        created_at = datetime.now(UTC).isoformat()
+        # Add two users matching the same filter
+        user1 = {
+            "id": str(uuid.uuid4()),
+            "display_name": "filter_me",
+            "email": "user1@squarelabs.hu",
+            "password": "hashed_password",
+            "username": "user1",
+            "roles": ["user"],
+            "created_at": created_at,
+        }
+        user2 = {
+            "id": str(uuid.uuid4()),
+            "display_name": "filter_me",
+            "email": "user2@squarelabs.hu",
+            "password": "hashed_password",
+            "username": "user2",
+            "roles": ["user"],
+            "created_at": created_at,
+        }
+        users_table.put_item(Item=user1)
+        users_table.put_item(Item=user2)
+
+        # First page: limit=1
+        items, next_key = user_repository.filter_users(
+            {"display_name": "filter_me"}, limit=1
+        )
+
+        assert len(items) == 1
+        assert next_key is not None
+
+        # Second page: use exclusive_start_key
+        items, next_key = user_repository.filter_users(
+            {"display_name": "filter_me"}, limit=10, exclusive_start_key=next_key
+        )
+
+        assert len(items) == 1
+        assert next_key is None
+
     def test_get_users_returns_only_active_users(
         self, users_table, user: User, user_repository: UserRepository
     ):
@@ -211,3 +263,77 @@ class TestUserRepository:
         assert user in items
         assert User(**deleted_user) not in items
         assert next_key is None
+
+    def test_get_users_returns_empty_list_when_no_active_users(
+        self, users_table, user: User, user_repository: UserRepository
+    ):
+        # Delete the seeded user so no active users remain
+        users_table.delete_item(Key={"id": user.id})
+
+        items, next_key = user_repository.get_users(limit=10)
+
+        assert items == []
+        assert next_key is None
+
+    def test_get_users_with_exclusive_start_key(
+        self, users_table, user: User, user_repository: UserRepository
+    ):
+        created_at = datetime.now(UTC).isoformat()
+        second_user = {
+            "id": str(uuid.uuid4()),
+            "display_name": "second_user",
+            "email": "second@squarelabs.hu",
+            "password": "hashed_password",
+            "username": "second_user",
+            "roles": ["user"],
+            "created_at": created_at,
+        }
+        users_table.put_item(Item=second_user)
+
+        # Get first page
+        items, next_key = user_repository.get_users(limit=1)
+
+        assert len(items) == 1
+        assert next_key is not None
+
+        # Get second page
+        items, next_key = user_repository.get_users(
+            limit=10, exclusive_start_key=next_key
+        )
+
+        assert len(items) == 1
+        assert next_key is None
+
+    def test_get_by_id_returns_none_for_soft_deleted_user(
+        self, users_table, user: User, user_repository: UserRepository
+    ):
+        """Test that get_by_id returns None for a soft-deleted user."""
+        from datetime import UTC, datetime
+
+        deleted_at = datetime.now(UTC).isoformat()
+        users_table.update_item(
+            Key={"id": user.id},
+            UpdateExpression="SET deleted_at = :deleted_at",
+            ExpressionAttributeValues={":deleted_at": deleted_at},
+        )
+
+        item = user_repository.get_by_id(user.id)
+
+        assert item is None
+
+    def test_get_by_username_returns_none_for_soft_deleted_user(
+        self, users_table, user: User, user_repository: UserRepository
+    ):
+        """Test that get_by_username returns None for a soft-deleted user."""
+        from datetime import UTC, datetime
+
+        deleted_at = datetime.now(UTC).isoformat()
+        users_table.update_item(
+            Key={"id": user.id},
+            UpdateExpression="SET deleted_at = :deleted_at",
+            ExpressionAttributeValues={":deleted_at": deleted_at},
+        )
+
+        item = user_repository.get_by_username(user.username)
+
+        assert item is None

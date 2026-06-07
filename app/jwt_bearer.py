@@ -65,7 +65,6 @@ class HTTPBearer(FastAPIHTTPBearer):
         return HTTPAuthorizationCredentials(scheme=scheme, credentials=credentials)
 
 
-
 class JWTBearer:
     def __init__(self, auto_error: bool = True):
         self._auto_error = auto_error

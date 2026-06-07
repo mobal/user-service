@@ -67,6 +67,40 @@ class TestRoleService:
                 }
             )
 
+    def test_create_role_rejects_path_with_empty_segments(
+        self, role_service: RoleService
+    ):
+        """Test that create_role rejects path with empty segments (line 36-37 coverage)."""
+        with pytest.raises(
+            BadRequestException, match="Role path must contain non-empty segments"
+        ):
+            role_service.create_role(
+                {
+                    "id": "STORE_MGR",
+                    "path": "SUPER_ADMIN##STORE_MGR",
+                    "description": "Store manager",
+                }
+            )
+
+    def test_create_role_raises_when_parent_role_not_found(
+        self, mocker, role_service: RoleService
+    ):
+        """Test that create_role raises when parent role does not exist (lines 47-51 coverage)."""
+        mocker.patch.object(RoleRepository, "get_by_path", return_value=None)
+
+        with pytest.raises(
+            BadRequestException,
+            match="Parent role with path 'SUPER_ADMIN' does not exist",
+        ):
+            role_service.create_role(
+                {
+                    "id": "STORE_MGR",
+                    "path": "SUPER_ADMIN#STORE_MGR",
+                    "description": "Store manager",
+                    "permissions": ["stores:write"],
+                }
+            )
+
     def test_successfully_delete_role(self, mocker, role_service: RoleService):
         delete_role_mock = mocker.patch.object(RoleRepository, "delete_role")
 
@@ -134,6 +168,35 @@ class TestRoleService:
                 "role-id",
                 {"path": "#INVALID", "description": "Invalid"},
             )
+
+    def test_update_role_rejects_invalid_path_starting_with_hash(
+        self, role_service: RoleService
+    ):
+        """Test that update_role rejects path starting with #."""
+        with pytest.raises(
+            BadRequestException, match="Role path must contain non-empty segments"
+        ):
+            role_service.update_role(
+                "role-id",
+                {"path": "#ROLE_ID", "description": "Invalid"},
+            )
+
+    def test_update_role_succeeds_with_permissions_only(
+        self, mocker, role: Role, role_service: RoleService
+    ):
+        """Test that update_role works when only permissions are provided."""
+        update_role_mock = mocker.patch.object(
+            RoleRepository, "update_role", return_value=role.model_dump()
+        )
+
+        role_service.update_role(
+            role.id,
+            {"permissions": ["roles:read"]},
+        )
+
+        update_role_mock.assert_called_once()
+        payload = update_role_mock.call_args.args[1]
+        assert payload["permissions"] == ["roles:read"]
 
     def test_update_role_rejects_invalid_path_not_ending_with_role_id(
         self, role_service: RoleService
@@ -438,3 +501,45 @@ class TestRoleService:
         result = RoleService._build_lineage_paths(path)
 
         assert result == ["SUPER_ADMIN"]
+
+    def test_get_effective_permissions_with_empty_role_ids(
+        self, mocker, role_service: RoleService
+    ):
+        """Test get_effective_permissions with empty list."""
+        result = role_service.get_effective_permissions([])
+
+        assert result == set()
+
+    def test_get_effective_permissions_with_role_having_no_permissions(
+        self, mocker, role_service: RoleService
+    ):
+        """Test get_effective_permissions for a role with no permissions."""
+        mocker.patch.object(
+            RoleService,
+            "get_role_lineage",
+            return_value=[
+                Role(
+                    id="NO_PERM_ROLE",
+                    path="NO_PERM_ROLE",
+                    description="No permissions role",
+                    permissions=[],
+                    created_at=datetime.now().isoformat(),
+                ),
+            ],
+        )
+
+        result = role_service.get_effective_permissions(["NO_PERM_ROLE"])
+
+        assert result == set()
+
+    def test_split_path_returns_segments(self, role_service: RoleService):
+        """Test _split_path static method."""
+        result = RoleService._split_path("SUPER_ADMIN#REGIONAL_MGR#STORE_MGR")
+
+        assert result == ["SUPER_ADMIN", "REGIONAL_MGR", "STORE_MGR"]
+
+    def test_split_path_with_trailing_hash(self, role_service: RoleService):
+        """Test _split_path with trailing hash produces empty last segment."""
+        result = RoleService._split_path("SUPER_ADMIN#")
+
+        assert result == ["SUPER_ADMIN", ""]

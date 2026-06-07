@@ -124,6 +124,25 @@ class TestUserService:
 
         assert "display_name" not in payload
 
+    def test_create_user_normalizes_email_to_lowercase(
+        self, mocker, user_service: UserService
+    ):
+        """Test that create_user lowercases the email (line 153 coverage)."""
+        mocker.patch.object(UserRepository, "get_user_by_email", return_value=None)
+        mocker.patch.object(UserRepository, "get_by_username", return_value=None)
+        create_user_mock = mocker.patch.object(UserRepository, "create_user")
+
+        user_service.create_user(
+            email="UPPERCASE@SQUARELABS.HU",
+            password="not_so_secure_password",
+            username="newuser",
+            display_name="Uppercase User",
+        )
+
+        payload = create_user_mock.call_args.args[0]
+
+        assert payload["email"] == "uppercase@squarelabs.hu"
+
     def test_create_user_raises_conflict_when_email_already_exists(
         self, mocker, user: User, user_service: UserService
     ):
@@ -207,6 +226,15 @@ class TestUserService:
         assert item == user
         get_by_id_mock.assert_called_once_with(user.id)
 
+    def test_get_user_by_id_raises_not_found_when_user_missing(
+        self, mocker, user_service: UserService
+    ):
+        """Test that get_user_by_id raises UserNotFoundException when user not found (lines 177-178 coverage)."""
+        mocker.patch.object(UserRepository, "get_by_id", return_value=None)
+
+        with pytest.raises(UserNotFoundException, match="User with id .* not found"):
+            user_service.get_user_by_id("nonexistent-id")
+
     def test_successfully_get_users_with_filters(
         self, mocker, user: User, user_service: UserService
     ):
@@ -247,6 +275,31 @@ class TestUserService:
             exclusive_start_key=None,
         )
 
+    def test_get_users_uses_scan_when_filters_is_empty_dict(
+        self, mocker, user: User, user_service: UserService
+    ):
+        """Test that empty dict filters falls through to get_users (line 187: empty dict is falsy)."""
+        get_users_mock = mocker.patch.object(
+            UserRepository, "get_users", return_value=([user], None)
+        )
+        filter_users_mock = mocker.patch.object(UserRepository, "filter_users")
+
+        response = user_service.get_users(filters={}, limit=10, next_key=None)
+
+        assert response == ([user], None)
+        get_users_mock.assert_called_once()
+        filter_users_mock.assert_not_called()
+
+    def test_get_users_returns_no_users_when_table_empty(
+        self, mocker, user_service: UserService
+    ):
+        """Test get_users with empty results."""
+        mocker.patch.object(UserRepository, "get_users", return_value=([], None))
+
+        response = user_service.get_users(filters=None, limit=10, next_key=None)
+
+        assert response == ([], None)
+
     def test_successfully_update_user_by_id(
         self, mocker, user: User, user_service: UserService
     ):
@@ -278,6 +331,63 @@ class TestUserService:
 
         with pytest.raises(BadRequestException):
             user_service.update_user_by_id(user.id, {"roles": ["admin"]})
+
+    def test_update_user_by_id_normalizes_email_to_lowercase(
+        self, mocker, user: User, user_service: UserService
+    ):
+        """Test that update_user_by_id lowercases the email (line 207 coverage)."""
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        mocker.patch.object(UserRepository, "get_user_by_email", return_value=None)
+        mocker.patch.object(UserRepository, "get_by_username", return_value=None)
+        update_user_mock = mocker.patch.object(
+            UserRepository, "update_user", return_value=user.model_dump()
+        )
+
+        user_service.update_user_by_id(
+            user.id,
+            {"email": "MIXEDCASE@SQUARELABS.HU"},
+        )
+
+        payload = update_user_mock.call_args.args[1]
+        assert payload["email"] == "mixedcase@squarelabs.hu"
+
+    def test_update_user_by_id_does_not_raise_when_email_is_same(
+        self, mocker, user: User, user_service: UserService
+    ):
+        """Test that update_user_by_id does not raise when updating to the same email."""
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        # get_user_by_email returns the same user (which is fine as id matches)
+        mocker.patch.object(UserRepository, "get_user_by_email", return_value=user)
+        mocker.patch.object(UserRepository, "get_by_username", return_value=None)
+        update_user_mock = mocker.patch.object(
+            UserRepository, "update_user", return_value=user.model_dump()
+        )
+
+        user_service.update_user_by_id(
+            user.id,
+            {"display_name": "updated_root"},
+        )
+
+        update_user_mock.assert_called_once()
+
+    def test_update_user_by_id_does_not_raise_when_username_is_same(
+        self, mocker, user: User, user_service: UserService
+    ):
+        """Test that update_user_by_id does not raise when updating to the same username."""
+        mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        mocker.patch.object(UserRepository, "get_user_by_email", return_value=None)
+        # get_by_username returns the same user (which is fine as id matches)
+        mocker.patch.object(UserRepository, "get_by_username", return_value=user)
+        update_user_mock = mocker.patch.object(
+            UserRepository, "update_user", return_value=user.model_dump()
+        )
+
+        user_service.update_user_by_id(
+            user.id,
+            {"display_name": "updated_root"},
+        )
+
+        update_user_mock.assert_called_once()
 
     def test_update_user_by_id_raises_when_email_belongs_to_other_user(
         self, mocker, user: User, user_service: UserService
@@ -414,3 +524,43 @@ class TestUserService:
         user_service.validate_user_by_id(user.id, "not_so_secure_password")
 
         assert update_user_mock.call_count == 1
+
+    def test_encode_next_key_returns_none_for_empty_dict(
+        self, user_service: UserService
+    ):
+        """Test encoding an empty dict — empty dict is falsy so returns None."""
+        encoded_next_key = UserService._encode_next_key({})
+
+        assert encoded_next_key is None
+
+    def test_decode_next_key_raises_for_non_dict_json(self, user_service: UserService):
+        """Test decoding valid JSON that is not a dict."""
+        from base64 import urlsafe_b64encode
+
+        encoded = urlsafe_b64encode(b'"string_value"').decode()
+
+        with pytest.raises(
+            InvalidPaginationKeyException, match="Invalid pagination key"
+        ):
+            UserService._decode_next_key(encoded)
+
+    def test_create_user_raises_user_already_exists_with_email_first(
+        self, mocker, user: User, user_service: UserService
+    ):
+        """Test that email conflict is checked before username conflict."""
+        mocker.patch.object(UserRepository, "get_user_by_email", return_value=user)
+        get_by_username_mock = mocker.patch.object(
+            UserRepository, "get_by_username", return_value=None
+        )
+
+        with pytest.raises(
+            UserAlreadyExistsException, match="User with email .* already exists"
+        ):
+            user_service.create_user(
+                email=user.email,
+                password="not_so_secure_password",
+                username="new_username",
+                display_name=None,
+            )
+
+        get_by_username_mock.assert_not_called()

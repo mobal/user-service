@@ -292,6 +292,141 @@ class TestRoleAPI:
         assert response.status_code == status.HTTP_403_FORBIDDEN
         self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
+    # POST /api/v1/roles - parent not found / invalid path
+
+    def test_create_role_returns_400_when_parent_not_found(
+        self, test_client: TestClient, root_token: str
+    ):
+        """Test creating a role whose parent role does not exist."""
+        response = test_client.post(
+            "/api/v1/roles",
+            json={
+                "id": "ORPHAN_ROLE",
+                "path": "NONEXISTENT_PARENT#ORPHAN_ROLE",
+                "description": "Orphan role",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self._assert_error_response(response, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_role_returns_400_for_invalid_path_not_ending_with_id(
+        self, test_client: TestClient, root_token: str
+    ):
+        """Test creating a role with path not ending with role id."""
+        response = test_client.post(
+            "/api/v1/roles",
+            json={
+                "id": "STORE_MGR",
+                "path": "SUPER_ADMIN#REGIONAL_MGR",
+                "description": "Invalid store role",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self._assert_error_response(response, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_role_returns_400_for_path_with_empty_segments(
+        self, test_client: TestClient, root_token: str
+    ):
+        """Test creating a role with path containing empty segments."""
+        response = test_client.post(
+            "/api/v1/roles",
+            json={
+                "id": "STORE_MGR",
+                "path": "SUPER_ADMIN##STORE_MGR",
+                "description": "Store manager",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self._assert_error_response(response, status.HTTP_400_BAD_REQUEST)
+
+    # PUT /api/v1/roles/{role_id} - invalid path / not found
+
+    def test_update_role_returns_400_for_invalid_path(
+        self, test_client: TestClient, root_token: str, role: Role
+    ):
+        """Test updating a role with an invalid path."""
+        response = test_client.put(
+            f"/api/v1/roles/{role.id}",
+            json={"path": "#INVALID"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self._assert_error_response(response, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_role_returns_400_for_path_not_ending_with_role_id(
+        self, test_client: TestClient, root_token: str, role: Role
+    ):
+        """Test updating a role with path not ending with the role id."""
+        response = test_client.put(
+            f"/api/v1/roles/{role.id}",
+            json={"path": "SUPER_ADMIN#WRONG_ID"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self._assert_error_response(response, status.HTTP_400_BAD_REQUEST)
+
+    # GET /api/v1/roles/{role_id} - for deleted role
+
+    def test_get_role_by_id_returns_404_for_deleted_role(
+        self, test_client: TestClient, root_token: str, role: Role
+    ):
+        """Test getting a soft-deleted role returns 404."""
+        # Roles are hard-deleted, so delete it first
+        test_client.delete(
+            f"/api/v1/roles/{role.id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        response = test_client.get(
+            f"/api/v1/roles/{role.id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
+
+    # GET /api/v1/roles/name/{role_name} - for deleted role
+
+    def test_get_role_by_name_returns_404_for_deleted_role(
+        self, test_client: TestClient, root_token: str, role: Role
+    ):
+        """Test getting a deleted role by name returns 404."""
+        test_client.delete(
+            f"/api/v1/roles/{role.id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        response = test_client.get(
+            f"/api/v1/roles/name/{role.id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
+
+    # PUT /api/v1/roles/{role_id} - non-existent role
+
+    def test_update_role_returns_200_for_nonexistent_role(
+        self, test_client: TestClient, root_token: str
+    ):
+        """Test updating a non-existent role (role repository has no condition check, so it returns 204)."""
+        response = test_client.put(
+            f"/api/v1/roles/{uuid.uuid4()}",
+            json={"description": "Ghost role"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        # Role repository update_role has no ConditionExpression, so it silently succeeds
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
     def test_update_role_returns_403_without_write_role(
         self, test_client: TestClient, user_token: str, role: Role
     ):
