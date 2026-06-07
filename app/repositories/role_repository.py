@@ -24,7 +24,9 @@ class RoleRepository:
         return path.rsplit("#", maxsplit=1)[-1].strip()
 
     def create_role(self, data: dict[str, Any]) -> dict[str, Any]:
-        return self._table.put_item(Item=data)
+        return self._table.put_item(
+            Item=data, ConditionExpression=Attr("id").not_exists()
+        )
 
     def delete_role(self, role_id: str) -> dict[str, Any]:
         return self._table.delete_item(Key={"id": role_id})
