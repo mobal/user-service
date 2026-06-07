@@ -710,3 +710,20 @@ class TestUserAPI:
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
         self._assert_error_response(response, status.HTTP_422_UNPROCESSABLE_CONTENT)
+
+    def test_validate_user_returns_404_for_deleted_user(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        test_client.delete(
+            f"/api/v1/users/{user.id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={"password": "not_so_secure_password"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)

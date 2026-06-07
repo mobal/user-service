@@ -106,7 +106,7 @@ class TestUserService:
         ):
             user_service._validate_next_key({"id": 123})
 
-    def test_create_user_successfully_defaults_display_name_to_empty_string(
+    def test_create_user_omits_display_name_when_not_provided(
         self, mocker, user_service: UserService
     ):
         mocker.patch.object(UserRepository, "get_user_by_email", return_value=None)
@@ -122,7 +122,7 @@ class TestUserService:
 
         payload = create_user_mock.call_args.args[0]
 
-        assert payload["display_name"] == ""
+        assert "display_name" not in payload
 
     def test_create_user_raises_conflict_when_email_already_exists(
         self, mocker, user: User, user_service: UserService
@@ -372,6 +372,15 @@ class TestUserService:
 
         with pytest.raises(InvalidPasswordException):
             user_service.validate_user_by_id(user.id, "wrong_password")
+
+    def test_validate_user_by_id_raises_not_found_for_deleted_user(
+        self, mocker, user: User, user_service: UserService
+    ):
+        """Test that validate_user_by_id raises UserNotFoundException when user is soft-deleted (L8)."""
+        mocker.patch.object(UserRepository, "get_by_id", return_value=None)
+
+        with pytest.raises(UserNotFoundException, match="User with id .* not found"):
+            user_service.validate_user_by_id(user.id, "not_so_secure_password")
 
     def test_validate_user_by_id_triggers_password_rehash_when_needed(
         self, mocker, user: User, user_service: UserService

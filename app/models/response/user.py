@@ -5,7 +5,7 @@ from app.models.base import CamelCaseModel
 
 class UserResponse(CamelCaseModel):
     id: str
-    display_name: str
+    display_name: str | None = None
     email: str
     username: str
     roles: list[str] = Field(default_factory=list)

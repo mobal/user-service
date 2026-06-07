@@ -8,6 +8,8 @@ from app.models.role import Role
 
 
 class RoleRepository:
+    _ACTIVE_FILTER = Attr("deleted_at").not_exists() | Attr("deleted_at").eq(None)
+
     def __init__(self):
         self._table = (
             boto3.Session().resource("dynamodb").Table(f"{settings.stage}-roles")
@@ -64,8 +66,7 @@ class RoleRepository:
         response = self._table.query(
             IndexName="PathIndex",
             KeyConditionExpression=Key("path").eq(path),
-            FilterExpression=Attr("deleted_at").not_exists()
-            | Attr("deleted_at").eq(None),
+            FilterExpression=self._ACTIVE_FILTER,
         )
         if response["Items"]:
             return Role(**response["Items"][0])
@@ -73,8 +74,7 @@ class RoleRepository:
 
     def get_by_name(self, role_name: str) -> Role | None:
         scan_kwargs: dict[str, Any] = {
-            "FilterExpression": Attr("deleted_at").not_exists()
-            | Attr("deleted_at").eq(None),
+            "FilterExpression": self._ACTIVE_FILTER,
         }
 
         while True:

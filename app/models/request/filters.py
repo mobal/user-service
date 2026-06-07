@@ -1,11 +1,9 @@
-from pydantic import ConfigDict, EmailStr, Field
+from pydantic import EmailStr, Field
 
-from app.models.base import CamelCaseModel
+from app.models.base import RequestModel
 
 
-class UserListQueryParams(CamelCaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class UserListQueryParams(RequestModel):
     username: str | None = None
     email: EmailStr | None = None
     display_name: str | None = None

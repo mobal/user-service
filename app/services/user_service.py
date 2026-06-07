@@ -156,7 +156,7 @@ class UserService:
             id=str(uuid.uuid4()),
             email=normalized_email,
             password=self._password_hasher.hash(password),
-            display_name=display_name or "",
+            display_name=display_name,
             username=username,
             created_at=self._now_iso(),
         )
@@ -240,4 +240,8 @@ class UserService:
             )
             return User(**updated_user)
         except (VerificationError, InvalidHashError) as error:
+            self._logger.warning(
+                "Failed authentication attempt",
+                extra={"user_id": user_id},
+            )
             raise InvalidPasswordException("Invalid password") from error

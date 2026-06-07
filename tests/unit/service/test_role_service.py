@@ -39,8 +39,9 @@ class TestRoleService:
         assert payload["description"] == "Top level admin role"
 
     def test_create_role_defaults_permissions_to_empty_list(
-        self, mocker, role_service: RoleService
+        self, mocker, role: Role, role_service: RoleService
     ):
+        mocker.patch.object(RoleRepository, "get_by_path", return_value=role)
         create_role_mock = mocker.patch.object(RoleRepository, "create_role")
 
         result = role_service.create_role(

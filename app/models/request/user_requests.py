@@ -1,9 +1,9 @@
 from pydantic import EmailStr, ValidationInfo, field_validator
 
-from app.models.base import CamelCaseModel
+from app.models.base import RequestModel
 
 
-class CreateUserRequest(CamelCaseModel):
+class CreateUserRequest(RequestModel):
     email: EmailStr
     username: str
     password: str
@@ -21,11 +21,11 @@ class CreateUserRequest(CamelCaseModel):
         return value
 
 
-class UpdateUserRequest(CamelCaseModel):
+class UpdateUserRequest(RequestModel):
     display_name: str | None = None
     email: EmailStr | None = None
     username: str | None = None
 
 
-class ValidateUserRequest(CamelCaseModel):
+class ValidateUserRequest(RequestModel):
     password: str

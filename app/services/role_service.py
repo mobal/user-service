@@ -42,6 +42,14 @@ class RoleService:
     def create_role(self, data: dict[str, Any]) -> dict[str, Any]:
         self._validate_role_path(data["id"], data["path"])
 
+        parent_paths = self._build_lineage_paths(data["path"])[:-1]
+        for parent_path in parent_paths:
+            parent_role = self._role_repository.get_by_path(parent_path)
+            if not parent_role:
+                raise BadRequestException(
+                    f"Parent role with path '{parent_path}' does not exist"
+                )
+
         role = Role(
             id=data["id"],
             path=data["path"],
@@ -85,6 +93,11 @@ class RoleService:
             lineage_role = self._role_repository.get_by_path(lineage_path)
             if lineage_role:
                 lineage.append(lineage_role)
+            else:
+                self._logger.warning(
+                    "Role lineage ancestor not found",
+                    extra={"role_id": role_id, "missing_path": lineage_path},
+                )
 
         return lineage
 

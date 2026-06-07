@@ -8,6 +8,8 @@ from app.models.user import User
 
 
 class UserRepository:
+    _ACTIVE_FILTER = Attr("deleted_at").not_exists() | Attr("deleted_at").eq(None)
+
     def __init__(self):
         self._table = (
             boto3.Session().resource("dynamodb").Table(f"{settings.stage}-users")
@@ -28,9 +30,7 @@ class UserRepository:
         limit: int,
         exclusive_start_key: dict[str, Any] | None = None,
     ) -> tuple[list[User], dict[str, Any] | None]:
-        filter_expression = Attr("deleted_at").not_exists() | Attr("deleted_at").eq(
-            None
-        )
+        filter_expression = self._ACTIVE_FILTER
         for key, value in filters.items():
             condition = Attr(key).eq(value)
             filter_expression = filter_expression & condition
@@ -49,12 +49,8 @@ class UserRepository:
     def get_users(
         self, limit: int, exclusive_start_key: dict[str, Any] | None = None
     ) -> tuple[list[User], dict[str, Any] | None]:
-        filter_expression = Attr("deleted_at").not_exists() | Attr("deleted_at").eq(
-            None
-        )
-
         scan_kwargs: dict[str, Any] = {
-            "FilterExpression": filter_expression,
+            "FilterExpression": self._ACTIVE_FILTER,
             "Limit": limit,
         }
         if exclusive_start_key:
@@ -101,8 +97,7 @@ class UserRepository:
         response = self._table.query(
             IndexName="EmailIndex",
             KeyConditionExpression=Key("email").eq(email),
-            FilterExpression=Attr("deleted_at").not_exists()
-            | Attr("deleted_at").eq(None),
+            FilterExpression=self._ACTIVE_FILTER,
         )
         if response["Items"]:
             return User(**response["Items"][0])
@@ -111,8 +106,7 @@ class UserRepository:
     def get_by_id(self, user_id: str) -> User | None:
         response = self._table.query(
             KeyConditionExpression=Key("id").eq(user_id),
-            FilterExpression=Attr("deleted_at").not_exists()
-            | Attr("deleted_at").eq(None),
+            FilterExpression=self._ACTIVE_FILTER,
         )
         if response["Items"]:
             return User(**response["Items"][0])
@@ -122,8 +116,7 @@ class UserRepository:
         response = self._table.query(
             IndexName="UsernameIndex",
             KeyConditionExpression=Key("username").eq(username),
-            FilterExpression=Attr("deleted_at").not_exists()
-            | Attr("deleted_at").eq(None),
+            FilterExpression=self._ACTIVE_FILTER,
         )
         if response["Items"]:
             return User(**response["Items"][0])
