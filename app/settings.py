@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     rate_limiting: bool = False
     rate_limit_requests: int = 100
     rate_limit_duration_in_seconds: int = 60
+    cors_allowed_origins: list[str] = ["*"]
 
     @computed_field
     @property

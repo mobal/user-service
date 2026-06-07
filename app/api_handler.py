@@ -24,7 +24,10 @@ app.add_middleware(GZipMiddleware)
 app.add_middleware(RateLimitingMiddleware)
 app.add_middleware(ExceptionMiddleware, handlers=app.exception_handlers)
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+    CORSMiddleware,
+    allow_origins=settings.cors_allowed_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 app.include_router(api_v1_router)
 
