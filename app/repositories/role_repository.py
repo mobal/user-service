@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import boto3
@@ -29,7 +30,16 @@ class RoleRepository:
         )
 
     def delete_role(self, role_id: str) -> dict[str, Any]:
-        return self._table.delete_item(Key={"id": role_id})
+        return self._table.update_item(
+            Key={"id": role_id},
+            ConditionExpression="attribute_exists(id)",
+            UpdateExpression="SET deleted_at = :deleted_at, updated_at = :updated_at",
+            ExpressionAttributeValues={
+                ":deleted_at": datetime.now(UTC).isoformat(),
+                ":updated_at": datetime.now(UTC).isoformat(),
+            },
+            ReturnValues="ALL_NEW",
+        )
 
     def update_role(self, role_id: str, data: dict[str, Any]) -> dict[str, Any]:
         update_data = {k: v for k, v in data.items() if k != "id"}

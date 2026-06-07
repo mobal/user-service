@@ -37,14 +37,16 @@ class TestRoleRepository:
 
         response = roles_table.get_item(Key={"id": role.id})
 
-        assert "Item" not in response
+        assert "Item" in response
+        assert response["Item"]["deleted_at"] is not None
 
     def test_delete_role_returns_success_for_missing_id(
         self, role_repository: RoleRepository, roles_table
     ):
-        response = role_repository.delete_role(str(uuid.uuid4()))
+        from botocore.exceptions import ClientError
 
-        assert response["ResponseMetadata"]["HTTPStatusCode"] == 200
+        with pytest.raises(ClientError):
+            role_repository.delete_role(str(uuid.uuid4()))
 
     def test_successfully_update_role(
         self, role: Role, role_repository: RoleRepository, roles_table
