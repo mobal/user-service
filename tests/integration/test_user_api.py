@@ -600,17 +600,11 @@ class TestUserAPI:
 
     def test_successfully_validate_user(
         self,
-        mocker,
         test_client: TestClient,
         root_token: str,
         user: User,
         password: str,
     ):
-        mocker.patch(
-            "app.services.user_service.UserService._update_user",
-            return_value=user.model_dump(),
-        )
-
         response = test_client.post(
             f"/api/v1/users/{user.id}/validate",
             json={"password": password},
@@ -619,7 +613,14 @@ class TestUserAPI:
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        self._assert_user_response_body(body, user)
+        assert body["id"] == user.id
+        assert body["displayName"] == user.display_name
+        assert body["email"] == user.email
+        assert body["username"] == user.username
+        assert body["roles"] == user.roles
+        assert body["createdAt"] == user.created_at
+        assert body["deletedAt"] == user.deleted_at
+        assert isinstance(body["updatedAt"], str)
         assert "password" not in body
 
     def test_successfully_validate_user_updates_last_login_at(

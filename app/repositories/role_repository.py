@@ -122,9 +122,7 @@ class RoleRepository:
         import operator
         from functools import reduce
 
-        conditions = reduce(
-            operator.or_, [Attr("path").eq(path) for path in paths]
-        )
+        conditions = reduce(operator.or_, [Attr("path").eq(path) for path in paths])
         response = self._table.scan(
             FilterExpression=self._ACTIVE_FILTER & conditions,
         )
