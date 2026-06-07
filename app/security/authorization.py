@@ -39,8 +39,13 @@ def pre_authorize(roles: list[str]):
                         role_service.get_effective_permissions(normalized_user_roles)
                     )
                 except ClientError:
-                    logger.warning(
-                        "Skipping role inheritance resolution during authorization"
+                    logger.error(
+                        "Failed to resolve role inheritance during authorization",
+                        exc_info=True,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Authorization service unavailable",
                     )
 
             if not any(role in permissions for role in roles):
