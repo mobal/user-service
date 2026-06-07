@@ -506,9 +506,8 @@ class TestUserService:
 
         user_service.validate_user_by_id(user.id, "not_so_secure_password")
 
-        assert update_user_mock.call_count == 2
-        # First call should be for password update
-        # Second call should be for last_login_at update
+        assert update_user_mock.call_count == 1
+        # Single call should include both password and last_login_at update
 
     def test_validate_user_by_id_without_password_rehash(
         self, mocker, user: User, user_service: UserService

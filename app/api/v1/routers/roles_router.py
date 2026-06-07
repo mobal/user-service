@@ -1,13 +1,13 @@
 from typing import Annotated
 
 from aws_lambda_powertools.logging import Logger
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.dependencies import get_jwt_bearer, get_role_service
 from app.exceptions import NotFoundException
 from app.jwt_bearer import JWTToken
 from app.models.request.role_requests import CreateRoleRequest, UpdateRoleRequest
-from app.models.response.role import RoleWithInheritanceResponse
+from app.models.response.role import RoleResponse, RoleWithInheritanceResponse
 from app.security.authorization import pre_authorize
 from app.services.role_service import RoleService
 
@@ -28,6 +28,22 @@ def create_role(
         status_code=status.HTTP_201_CREATED,
         headers={"Location": f"/roles/{role['id']}"},
     )
+
+
+@router.get("/roles")
+@pre_authorize(roles=["roles:read"])
+def get_roles(
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    next_key: Annotated[str | None, Query()] = None,
+    token: Annotated[JWTToken, Depends(get_jwt_bearer)] = None,
+    role_service: Annotated[RoleService, Depends(get_role_service)] = None,
+):
+    roles, encoded_next_key = role_service.get_roles(limit=limit, next_key=next_key)
+
+    return {
+        "items": [RoleResponse(**role.model_dump()) for role in roles],
+        "nextKey": encoded_next_key,
+    }
 
 
 @router.delete("/roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT)

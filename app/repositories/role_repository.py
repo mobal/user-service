@@ -101,6 +101,20 @@ class RoleRepository:
 
             scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
 
+    def get_roles(
+        self, limit: int, exclusive_start_key: dict[str, Any] | None = None
+    ) -> tuple[list[Role], dict[str, Any] | None]:
+        scan_kwargs: dict[str, Any] = {
+            "FilterExpression": self._ACTIVE_FILTER,
+            "Limit": limit,
+        }
+        if exclusive_start_key:
+            scan_kwargs["ExclusiveStartKey"] = exclusive_start_key
+
+        response = self._table.scan(**scan_kwargs)
+        roles = [Role(**item) for item in response.get("Items", [])]
+        return roles, response.get("LastEvaluatedKey")
+
     def get_roles_by_paths(self, paths: list[str]) -> list[Role]:
         if not paths:
             return []

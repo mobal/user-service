@@ -1,3 +1,5 @@
+import json
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import UTC, datetime
 from typing import Any
 
@@ -71,6 +73,31 @@ class RoleService:
 
         payload = {**data, "updated_at": datetime.now(UTC).isoformat()}
         return self._role_repository.update_role(role_id, payload)
+
+    def get_roles(
+        self, limit: int = 50, next_key: str | None = None
+    ) -> tuple[list[Role], str | None]:
+        exclusive_start_key = (
+            json.loads(
+                urlsafe_b64decode(
+                    (next_key + ("=" * (-len(next_key) % 4))).encode("utf-8")
+                ).decode("utf-8")
+            )
+            if next_key
+            else None
+        )
+
+        roles, last_evaluated_key = self._role_repository.get_roles(
+            limit=limit, exclusive_start_key=exclusive_start_key
+        )
+        encoded_next_key = (
+            urlsafe_b64encode(
+                json.dumps(last_evaluated_key, separators=(",", ":")).encode("utf-8")
+            ).decode("utf-8")
+            if last_evaluated_key
+            else None
+        )
+        return roles, encoded_next_key
 
     def get_role_by_id(self, role_id: str) -> Role | None:
         return self._role_repository.get_by_id(role_id)

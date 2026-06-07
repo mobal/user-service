@@ -222,12 +222,14 @@ class UserService:
 
         try:
             self._password_hasher.verify(user.password, password)
+
+            user_data: dict[str, Any] = {"last_login_at": self._now_iso()}
+            allowed_fields: set[str] = self._SYSTEM_UPDATE_FIELDS
+
             if self._password_hasher.check_needs_rehash(user.password):
-                self._update_user(
-                    user_id=user_id,
-                    user_data={"password": self._password_hasher.hash(password)},
-                    allowed_fields=self._USER_UPDATE_FIELDS | {"password"},
-                )
+                user_data["password"] = self._password_hasher.hash(password)
+                allowed_fields = allowed_fields | {"password"}
+
             self._logger.info(
                 "User authenticated successfully",
                 extra={"user_id": user_id},
@@ -235,8 +237,8 @@ class UserService:
 
             updated_user = self._update_user(
                 user_id=user_id,
-                user_data={"last_login_at": self._now_iso()},
-                allowed_fields=self._SYSTEM_UPDATE_FIELDS,
+                user_data=user_data,
+                allowed_fields=allowed_fields,
             )
             return User(**updated_user)
         except (VerificationError, InvalidHashError) as error:
