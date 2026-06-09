@@ -9,6 +9,7 @@ from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from botocore.exceptions import ClientError
 
 from app.exceptions import (
+    AlreadyExistsException,
     BadRequestException,
     InvalidPaginationKeyException,
     InvalidPasswordException,
@@ -416,11 +417,42 @@ class TestUserService:
         with pytest.raises(UserAlreadyExistsException):
             user_service.update_user_by_id(user.id, {"username": "different_username"})
 
-    def test_update_user_by_id_raises_user_not_found_when_update_fails(
+    def test_update_user_by_id_raises_concurrent_modification_when_condition_fails(
         self, mocker, user: User, user_service: UserService
     ):
-        """Test that update_user_by_id raises UserNotFoundException when update_user fails (lines 112-113 coverage)."""
+        """Test that update_user_by_id raises AlreadyExistsException when a concurrent modification is detected."""
         mocker.patch.object(UserRepository, "get_by_id", return_value=user)
+        update_user_mock = mocker.patch.object(
+            UserRepository,
+            "update_user",
+            side_effect=ClientError(
+                {
+                    "Error": {
+                        "Code": "ConditionalCheckFailedException",
+                        "Message": "Condition check failed",
+                    }
+                },
+                "UpdateItem",
+            ),
+        )
+
+        with pytest.raises(AlreadyExistsException, match="modified by another request"):
+            user_service.update_user_by_id(user.id, {"display_name": "updated"})
+
+        update_user_mock.assert_called_once()
+
+    def test_update_user_id_raises_user_not_found_when_update_fails_without_locking(
+        self, mocker, user_service: UserService
+    ):
+        """Test _update_user raises UserNotFoundException for ConditionalCheckFailedException without locking."""
+        mock_user = mocker.MagicMock()
+        mock_user.updated_at = None  # New user, no optimistic locking
+        mock_user.id = "test-id"
+
+        mocker.patch.object(UserRepository, "get_by_id", return_value=mock_user)
+        mocker.patch.object(UserRepository, "get_user_by_email", return_value=None)
+        mocker.patch.object(UserRepository, "get_by_username", return_value=None)
+
         update_user_mock = mocker.patch.object(
             UserRepository,
             "update_user",
@@ -436,7 +468,7 @@ class TestUserService:
         )
 
         with pytest.raises(UserNotFoundException, match="User with id .* not found"):
-            user_service.update_user_by_id(user.id, {"display_name": "updated"})
+            user_service.update_user_by_id(mock_user.id, {"display_name": "updated"})
 
         update_user_mock.assert_called_once()
 

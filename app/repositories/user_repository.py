@@ -62,7 +62,12 @@ class UserRepository:
         users = [User(**item) for item in response.get("Items", [])]
         return users, response.get("LastEvaluatedKey")
 
-    def update_user(self, user_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    def update_user(
+        self,
+        user_id: str,
+        data: dict[str, Any],
+        updated_at: str | None = None,
+    ) -> dict[str, Any]:
         update_data = {k: v for k, v in data.items() if k != "id"}
         if not update_data:
             return {}
@@ -78,18 +83,28 @@ class UserRepository:
             expression_values[value_key] = value
             set_clauses.append(f"{name_key} = {value_key}")
 
+        condition = (
+            "attribute_exists(id) AND "
+            "(attribute_not_exists(deleted_at) OR deleted_at = :deleted_at_null)"
+        )
+
+        expr_values: dict[str, Any] = {
+            **expression_values,
+            ":deleted_at_null": None,
+        }
+
+        if updated_at is not None:
+            condition += (
+                " AND (attribute_not_exists(updated_at) OR updated_at = :updated_at)"
+            )
+            expr_values[":updated_at"] = updated_at
+
         response = self._table.update_item(
             Key={"id": user_id},
-            ConditionExpression=(
-                "attribute_exists(id) AND "
-                "(attribute_not_exists(deleted_at) OR deleted_at = :deleted_at_null)"
-            ),
+            ConditionExpression=condition,
             UpdateExpression=f"SET {', '.join(set_clauses)}",
             ExpressionAttributeNames=expression_names,
-            ExpressionAttributeValues={
-                **expression_values,
-                ":deleted_at_null": None,
-            },
+            ExpressionAttributeValues=expr_values,
             ReturnValues="ALL_NEW",
         )
 

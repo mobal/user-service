@@ -11,6 +11,7 @@ from aws_lambda_powertools import Logger
 from botocore.exceptions import ClientError
 
 from app.exceptions import (
+    AlreadyExistsException,
     BadRequestException,
     InvalidPaginationKeyException,
     InvalidPasswordException,
@@ -102,14 +103,29 @@ class UserService:
                 )
 
     def _update_user(
-        self, user_id: str, user_data: dict[str, Any], allowed_fields: set[str]
+        self,
+        user_id: str,
+        user_data: dict[str, Any],
+        allowed_fields: set[str],
+        updated_at: str | None = None,
     ) -> dict[str, Any]:
         self._assert_allowed_update_fields(user_data, allowed_fields)
         payload = {**user_data, "updated_at": self._now_iso()}
 
         try:
-            return self._user_repository.update_user(user_id, payload)
+            return self._user_repository.update_user(
+                user_id, payload, updated_at=updated_at
+            )
         except ClientError as error:
+            error_code = error.response["Error"]["Code"]
+            if error_code == "ConditionalCheckFailedException":
+                if updated_at is not None:
+                    raise AlreadyExistsException(
+                        "The user was modified by another request. Please retry."
+                    ) from error
+                raise UserNotFoundException(
+                    f"User with id {user_id} not found"
+                ) from error
             raise UserNotFoundException(f"User with id {user_id} not found") from error
 
     @staticmethod
@@ -215,6 +231,7 @@ class UserService:
             user_id=user_id,
             user_data=normalized_data,
             allowed_fields=self._USER_UPDATE_FIELDS,
+            updated_at=user.updated_at,
         )
 
     def validate_user_by_id(self, user_id: str, password: str) -> User:
