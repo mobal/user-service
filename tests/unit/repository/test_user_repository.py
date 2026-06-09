@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from botocore.exceptions import ClientError
@@ -227,21 +228,26 @@ class TestUserRepository:
         users_table.put_item(Item=user1)
         users_table.put_item(Item=user2)
 
-        # First page: limit=1
-        items, next_key = user_repository.filter_users(
-            {"display_name": "filter_me"}, limit=1
-        )
+        # Collect all matching items across pages using exclusive_start_key.
+        # DynamoDB applies Limit BEFORE FilterExpression, so we loop with a
+        # generous limit per page and accumulate results until the table is exhausted.
+        all_found: dict[str, User] = {}
+        next_key: dict[str, Any] | None = None
 
-        assert len(items) == 1
-        assert next_key is not None
+        while True:
+            items, next_key = user_repository.filter_users(
+                {"display_name": "filter_me"},
+                limit=10,
+                exclusive_start_key=next_key,
+            )
+            for item in items:
+                all_found[item.id] = item
+            if not next_key:
+                break
 
-        # Second page: use exclusive_start_key
-        items, next_key = user_repository.filter_users(
-            {"display_name": "filter_me"}, limit=10, exclusive_start_key=next_key
-        )
-
-        assert len(items) == 1
-        assert next_key is None
+        assert len(all_found) == 2, f"Expected 2 matching users, got {len(all_found)}"
+        assert user1["id"] in all_found
+        assert user2["id"] in all_found
 
     def test_get_users_returns_only_active_users(
         self, users_table, user: User, user_repository: UserRepository

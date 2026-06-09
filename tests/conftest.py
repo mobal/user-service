@@ -12,6 +12,8 @@ from app.models.role import Role
 from app.models.user import User
 from app.settings import Settings
 
+USER_COUNT_FOR_PAGINATION = 15
+
 
 @pytest.fixture(autouse=True)
 def setup(monkeypatch):
@@ -175,3 +177,39 @@ def roles_table(dynamodb_resource, initialize_roles_table, roles_table_name: str
 @pytest.fixture
 def roles_table_name() -> str:
     return f"{os.getenv('STAGE')}-roles"
+
+
+@pytest.fixture
+def multiple_users_dicts(password) -> list[dict[str, Any]]:
+    """Generate multiple user dictionaries for pagination testing."""
+    now = datetime.now(tz=UTC).isoformat()
+    users = []
+    for i in range(USER_COUNT_FOR_PAGINATION):
+        users.append(
+            {
+                "display_name": f"User_{i:03d}",
+                "email": f"user{i:03d}@squarelabs.hu",
+                "password": PasswordHasher().hash(password),
+                "username": f"user_{i:03d}",
+                "roles": ["root"],
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+    return users
+
+
+@pytest.fixture
+def multiple_users(multiple_users_dicts: list[dict[str, Any]]) -> list[User]:
+    """Create multiple User model instances for pagination testing."""
+    return [
+        User(id=str(uuid.uuid4()), **user_dict) for user_dict in multiple_users_dicts
+    ]
+
+
+@pytest.fixture
+def initialize_multiple_users_table(users_table, multiple_users: list[User]):
+    """Populate an existing users table with additional rows for pagination testing."""
+    for u in multiple_users:
+        users_table.put_item(Item=u.model_dump())
+    return users_table

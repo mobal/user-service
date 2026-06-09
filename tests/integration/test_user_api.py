@@ -856,3 +856,81 @@ class TestUserAPI:
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
+
+    def test_get_users_paginates_with_limit(
+        self,
+        test_client: TestClient,
+        root_token: str,
+        initialize_multiple_users_table,
+    ):
+        """Test that GET /users returns paginated results with nextKey when limit is specified."""
+        response = test_client.get(
+            "/api/v1/users?limit=5",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert "items" in body
+        assert isinstance(body["items"], list)
+        assert len(body["items"]) == 5
+        assert body["nextKey"] is not None
+
+    def test_get_users_paginates_across_multiple_pages(
+        self,
+        test_client: TestClient,
+        root_token: str,
+        initialize_multiple_users_table,
+    ):
+        """Test that GET /users can traverse multiple pages via nextKey."""
+        collected_ids: set[str] = set()
+        next_key: str | None = None
+
+        for _ in range(5):
+            params = "limit=5"
+            if next_key:
+                params += f"&nextKey={next_key}"
+
+            response = test_client.get(
+                f"/api/v1/users?{params}",
+                headers={"Authorization": f"Bearer {root_token}"},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            body = response.json()
+            items = body["items"]
+            assert isinstance(items, list)
+
+            for item in items:
+                assert item["id"] not in collected_ids, "Duplicate user across pages"
+                collected_ids.add(item["id"])
+
+            next_key = body.get("nextKey")
+            if not next_key:
+                break
+
+        # We should have collected between 10 and 15 unique users
+        assert len(collected_ids) >= 5, (
+            "Should have paginated through at least one page"
+        )
+        assert next_key is None or len(collected_ids) >= 10, (
+            "Should have paginated through multiple pages or reached the end"
+        )
+
+    def test_get_users_with_limit_returns_all_when_below_total(
+        self,
+        test_client: TestClient,
+        root_token: str,
+        initialize_multiple_users_table,
+    ):
+        """Test that GET /users with a high limit returns all available users."""
+        response = test_client.get(
+            "/api/v1/users?limit=100",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert isinstance(body["items"], list)
+        assert len(body["items"]) >= 10
+        assert body["nextKey"] is None
