@@ -8,6 +8,7 @@ mkdir -p "$DIST"
 rm -f "$DIST/requirements.zip"
 
 docker run --rm \
+  --platform linux/amd64 \
   --user $(id -u):$(id -g) \
   -e HOME=/tmp \
   -e UV_NO_MODIFY_PATH=1 \

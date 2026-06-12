@@ -8,8 +8,11 @@ import pytest
 from argon2 import PasswordHasher
 from moto import mock_aws
 
+from app.models.role import Role
 from app.models.user import User
 from app.settings import Settings
+
+USER_COUNT_FOR_PAGINATION = 15
 
 
 @pytest.fixture(autouse=True)
@@ -98,6 +101,7 @@ def user_dict(password) -> dict[str, Any]:
         "username": "root",
         "roles": ["root"],
         "created_at": now,
+        "last_login_at": now,
         "updated_at": now,
     }
 
@@ -118,3 +122,94 @@ def users_table(dynamodb_resource, initialize_users_table, users_table_name: str
 @pytest.fixture
 def users_table_name() -> str:
     return f"{os.getenv('STAGE')}-users"
+
+
+@pytest.fixture
+def role_dict() -> dict[str, Any]:
+    now = datetime.now(tz=UTC).isoformat()
+    return {
+        "path": "SUPER_ADMIN",
+        "description": "Root role",
+        "permissions": ["roles:read", "roles:write"],
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+@pytest.fixture
+def role(role_dict: dict[str, Any]) -> Role:
+    return Role(
+        id="SUPER_ADMIN",
+        **role_dict,
+    )
+
+
+@pytest.fixture
+def initialize_roles_table(dynamodb_resource, role: Role, roles_table_name: str):
+    roles_table = dynamodb_resource.create_table(
+        AttributeDefinitions=[
+            {"AttributeName": "id", "AttributeType": "S"},
+            {"AttributeName": "path", "AttributeType": "S"},
+        ],
+        TableName=roles_table_name,
+        KeySchema=[{"AttributeName": "id", "KeyType": "HASH"}],
+        GlobalSecondaryIndexes=[
+            {
+                "IndexName": "PathIndex",
+                "KeySchema": [
+                    {"AttributeName": "path", "KeyType": "HASH"},
+                ],
+                "Projection": {
+                    "ProjectionType": "ALL",
+                },
+            },
+        ],
+        ProvisionedThroughput={"ReadCapacityUnits": 1, "WriteCapacityUnits": 1},
+    )
+    roles_table.put_item(Item=role.model_dump())
+
+
+@pytest.fixture
+def roles_table(dynamodb_resource, initialize_roles_table, roles_table_name: str):
+    return dynamodb_resource.Table(roles_table_name)
+
+
+@pytest.fixture
+def roles_table_name() -> str:
+    return f"{os.getenv('STAGE')}-roles"
+
+
+@pytest.fixture
+def multiple_users_dicts(password) -> list[dict[str, Any]]:
+    """Generate multiple user dictionaries for pagination testing."""
+    now = datetime.now(tz=UTC).isoformat()
+    users = []
+    for i in range(USER_COUNT_FOR_PAGINATION):
+        users.append(
+            {
+                "display_name": f"User_{i:03d}",
+                "email": f"user{i:03d}@squarelabs.hu",
+                "password": PasswordHasher().hash(password),
+                "username": f"user_{i:03d}",
+                "roles": ["root"],
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+    return users
+
+
+@pytest.fixture
+def multiple_users(multiple_users_dicts: list[dict[str, Any]]) -> list[User]:
+    """Create multiple User model instances for pagination testing."""
+    return [
+        User(id=str(uuid.uuid4()), **user_dict) for user_dict in multiple_users_dicts
+    ]
+
+
+@pytest.fixture
+def initialize_multiple_users_table(users_table, multiple_users: list[User]):
+    """Populate an existing users table with additional rows for pagination testing."""
+    for u in multiple_users:
+        users_table.put_item(Item=u.model_dump())
+    return users_table

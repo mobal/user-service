@@ -28,3 +28,7 @@ class UserNotFoundException(NotFoundException):
 
 class InvalidPaginationKeyException(BadRequestException):
     pass
+
+
+class InvalidPasswordException(BadRequestException):
+    pass

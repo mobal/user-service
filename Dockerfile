@@ -9,7 +9,8 @@ RUN apk add --no-cache gcc musl-dev libffi-dev curl
 
 COPY pyproject.toml uv.lock ./
 
-RUN pip install --no-cache-dir uv \
+ADD https://astral.sh/uv/install.sh /uv-installer.sh
+RUN sh /uv-installer.sh && rm /uv-installer.sh \
     && uv sync --frozen --no-dev
 
 COPY . .

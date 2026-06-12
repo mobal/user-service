@@ -3,10 +3,14 @@ from typing import Annotated
 from aws_lambda_powertools.logging import Logger
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from app.jwt_bearer import JWTBearer, JWTToken
-from app.models.request.filters import UserFilterParams
-from app.models.request.register import RegistrationRequest
-from app.models.request.update_user import UpdateUserRequest
+from app.dependencies import get_jwt_bearer, get_user_service
+from app.jwt_bearer import JWTToken
+from app.models.request.filters import UserListQueryParams
+from app.models.request.user_requests import (
+    CreateUserRequest,
+    UpdateUserRequest,
+    ValidateUserRequest,
+)
 from app.models.response.user import UserResponse
 from app.models.response.users_page import UsersPage
 from app.security.authorization import pre_authorize
@@ -14,14 +18,14 @@ from app.services.user_service import UserService
 
 logger = Logger()
 router = APIRouter()
-user_service = UserService()
-jwt_bearer = JWTBearer()
 
 
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 @pre_authorize(roles=["users:write"])
 def register_user(
-    body: RegistrationRequest, token: Annotated[JWTToken, Depends(jwt_bearer)]
+    body: CreateUserRequest,
+    token: Annotated[JWTToken, Depends(get_jwt_bearer)],
+    user_service: Annotated[UserService, Depends(get_user_service)],
 ):
     user_id = user_service.create_user(
         body.email, body.password, body.username, body.display_name
@@ -35,23 +39,32 @@ def register_user(
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 @pre_authorize(roles=["users:write"])
-def delete_user(user_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
+def delete_user(
+    user_id: str,
+    token: Annotated[JWTToken, Depends(get_jwt_bearer)],
+    user_service: Annotated[UserService, Depends(get_user_service)],
+):
     user_service.delete_user_by_id(user_id)
 
 
 @router.get("/users/{user_id}")
 @pre_authorize(roles=["users:read"])
-def get_user_by_id(user_id: str, token: Annotated[JWTToken, Depends(jwt_bearer)]):
+def get_user_by_id(
+    user_id: str,
+    token: Annotated[JWTToken, Depends(get_jwt_bearer)],
+    user_service: Annotated[UserService, Depends(get_user_service)],
+):
     user = user_service.get_user_by_id(user_id)
 
-    return UserResponse(**user.model_dump())
+    return UserResponse(**user.model_dump(exclude={"password"}))
 
 
 @router.get("/users")
 @pre_authorize(roles=["users:read"])
 def get_users(
-    filters: Annotated[UserFilterParams, Query()],
-    token: Annotated[JWTToken, Depends(jwt_bearer)],
+    filters: Annotated[UserListQueryParams, Query()],
+    token: Annotated[JWTToken, Depends(get_jwt_bearer)],
+    user_service: Annotated[UserService, Depends(get_user_service)],
 ) -> UsersPage:
     filter_values = filters.model_dump(
         exclude_none=True,
@@ -65,7 +78,7 @@ def get_users(
     )
 
     return UsersPage(
-        items=[UserResponse(**user.model_dump()) for user in users],
+        items=[UserResponse(**user.model_dump(exclude={"password"})) for user in users],
         next_key=next_key,
     )
 
@@ -75,6 +88,20 @@ def get_users(
 def update_user(
     user_id: str,
     body: UpdateUserRequest,
-    token: Annotated[JWTToken, Depends(jwt_bearer)],
+    token: Annotated[JWTToken, Depends(get_jwt_bearer)],
+    user_service: Annotated[UserService, Depends(get_user_service)],
 ) -> None:
     user_service.update_user_by_id(user_id, body.model_dump(exclude_none=True))
+
+
+@router.post("/users/{user_id}/validate")
+@pre_authorize(roles=["users:read"])
+def validate_user(
+    user_id: str,
+    body: ValidateUserRequest,
+    token: Annotated[JWTToken, Depends(get_jwt_bearer)],
+    user_service: Annotated[UserService, Depends(get_user_service)],
+):
+    user = user_service.validate_user_by_id(user_id, body.password)
+
+    return UserResponse(**user.model_dump(exclude={"password"}))

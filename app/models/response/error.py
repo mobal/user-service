@@ -1,9 +1,9 @@
 from collections.abc import Sequence
 
-from app.models.models import CamelModel
+from app.models.base import CamelCaseModel
 
 
-class ErrorResponse(CamelModel):
+class ErrorResponse(CamelCaseModel):
     status: int
     error: str
     timestamp: int

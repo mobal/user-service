@@ -1,15 +1,16 @@
-from pydantic import EmailStr
+from pydantic import EmailStr, Field
 
-from app.models.models import CamelModel
+from app.models.base import CamelCaseModel
 
 
-class User(CamelModel):
+class User(CamelCaseModel):
     id: str
-    display_name: str
+    display_name: str | None = None
     email: EmailStr
     password: str
     username: str
-    roles: list[str] = []
+    roles: list[str] = Field(default_factory=list)
     created_at: str
     deleted_at: str | None = None
+    last_login_at: str | None = None
     updated_at: str | None = None

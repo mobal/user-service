@@ -4,14 +4,35 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
+from fastapi import status
 from fastapi.testclient import TestClient
 
 from app.models.user import User
 
 
 class TestUserAPI:
+    @staticmethod
+    def _assert_error_response(response, expected_status_code: int):
+        body = response.json()
+
+        assert body["status"] == expected_status_code
+        assert isinstance(body["error"], str)
+        assert body["error"]
+        assert isinstance(body["timestamp"], int)
+
+    @staticmethod
+    def _assert_user_response_body(body: dict, user: User):
+        assert body["id"] == user.id
+        assert body["displayName"] == user.display_name
+        assert body["email"] == user.email
+        assert body["username"] == user.username
+        assert body["roles"] == user.roles
+        assert body["createdAt"] == user.created_at
+        assert body["deletedAt"] == user.deleted_at
+        assert body["updatedAt"] == user.updated_at
+
     @pytest.fixture
-    def test_client(self, initialize_users_table) -> TestClient:
+    def test_client(self, initialize_users_table, initialize_roles_table) -> TestClient:
         from app.api_handler import app
 
         return TestClient(app, raise_server_exceptions=True)
@@ -39,6 +60,20 @@ class TestUserAPI:
             "jti": str(uuid.uuid4()),
             "sub": "regular-user",
             "user": {"roles": []},
+        }
+        return jwt.encode(
+            payload, os.getenv("JWT_SECRET_SSM_PARAM_VALUE"), algorithm="HS256"
+        )
+
+    @pytest.fixture
+    def scope_token(self) -> str:
+        now = datetime.now(UTC)
+        payload = {
+            "exp": int((now + timedelta(hours=1)).timestamp()),
+            "iat": int(now.timestamp()),
+            "jti": str(uuid.uuid4()),
+            "sub": "scope-user",
+            "scope": "users:read users:write",
         }
         return jwt.encode(
             payload, os.getenv("JWT_SECRET_SSM_PARAM_VALUE"), algorithm="HS256"
@@ -85,7 +120,7 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
-        assert response.status_code == 201
+        assert response.status_code == status.HTTP_201_CREATED
         assert "location" in response.headers
         assert response.headers["location"].startswith("/users/")
 
@@ -100,7 +135,8 @@ class TestUserAPI:
             },
         )
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_register_user_returns_403_without_write_role(
         self, test_client: TestClient, user_token: str
@@ -116,7 +152,8 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {user_token}"},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_register_user_returns_422_when_passwords_do_not_match(
         self, test_client: TestClient, root_token: str
@@ -132,7 +169,42 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
-        assert response.status_code == 422
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        body = response.json()
+        assert body["status"] == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert body["error"] == "Validation Error"
+        assert isinstance(body["timestamp"], int)
+        assert isinstance(body["errors"], list)
+        assert body["errors"]
+
+    def test_register_user_returns_422_for_invalid_email(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "not-an-email",
+                "username": "newuser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        self._assert_error_response(response, status.HTTP_422_UNPROCESSABLE_CONTENT)
+
+    def test_register_user_returns_422_for_missing_required_fields(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.post(
+            "/api/v1/users",
+            json={},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        self._assert_error_response(response, status.HTTP_422_UNPROCESSABLE_CONTENT)
 
     def test_register_user_returns_403_for_invalid_signature_token(
         self, test_client: TestClient, invalid_signature_token: str
@@ -148,7 +220,8 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {invalid_signature_token}"},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_register_user_returns_403_for_expired_token(
         self, test_client: TestClient, expired_root_token: str
@@ -164,7 +237,8 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {expired_root_token}"},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_register_user_returns_403_for_malformed_token(
         self, test_client: TestClient
@@ -180,7 +254,8 @@ class TestUserAPI:
             headers={"Authorization": "Bearer not-a-valid-jwt"},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_register_user_returns_403_for_invalid_authorization_scheme(
         self, test_client: TestClient, root_token: str
@@ -196,7 +271,42 @@ class TestUserAPI:
             headers={"Authorization": f"Basic {root_token}"},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
+
+    def test_register_user_returns_409_for_duplicate_email(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        response = test_client.post(
+            "/api/v1/users",
+            json={
+                "email": user.email,
+                "username": "different-user",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        self._assert_error_response(response, status.HTTP_409_CONFLICT)
+
+    def test_register_user_returns_409_for_duplicate_username(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        response = test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "someone-else@squarelabs.hu",
+                "username": user.username,
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        self._assert_error_response(response, status.HTTP_409_CONFLICT)
 
     def test_successfully_delete_user(
         self, test_client: TestClient, root_token: str, user: User
@@ -206,14 +316,34 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
-        assert response.status_code == 204
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        get_response = test_client.get(
+            f"/api/v1/users/{user.id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert get_response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(get_response, status.HTTP_404_NOT_FOUND)
+
+    def test_delete_user_returns_404_for_unknown_user(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.delete(
+            f"/api/v1/users/{uuid.uuid4()}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
 
     def test_delete_user_returns_403_without_token(
         self, test_client: TestClient, user: User
     ):
         response = test_client.delete(f"/api/v1/users/{user.id}")
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_delete_user_returns_403_without_write_role(
         self, test_client: TestClient, user_token: str, user: User
@@ -223,7 +353,8 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {user_token}"},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_successfully_get_user_by_id(
         self, test_client: TestClient, root_token: str, user: User
@@ -233,28 +364,49 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
+        self._assert_user_response_body(response.json(), user)
 
     def test_get_user_by_id_returns_403_without_token(
         self, test_client: TestClient, user: User
     ):
         response = test_client.get(f"/api/v1/users/{user.id}")
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
-    def test_successfully_get_user_by_id_with_token_query_param(
-        self, test_client: TestClient, root_token: str, user: User
+    def test_successfully_get_user_by_id_with_scope_token(
+        self, test_client: TestClient, scope_token: str, user: User
     ):
-        response = test_client.get(f"/api/v1/users/{user.id}?token={root_token}")
+        response = test_client.get(
+            f"/api/v1/users/{user.id}",
+            headers={"Authorization": f"Bearer {scope_token}"},
+        )
 
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
+        self._assert_user_response_body(response.json(), user)
 
-    def test_get_user_by_id_returns_403_with_invalid_token_query_param(
-        self, test_client: TestClient, user: User
+    def test_get_user_by_id_returns_403_without_read_role(
+        self, test_client: TestClient, user_token: str, user: User
     ):
-        response = test_client.get(f"/api/v1/users/{user.id}?token=not-a-valid-jwt")
+        response = test_client.get(
+            f"/api/v1/users/{user.id}",
+            headers={"Authorization": f"Bearer {user_token}"},
+        )
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
+
+    def test_get_user_by_id_returns_404_for_unknown_user_id(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.get(
+            f"/api/v1/users/{uuid.uuid4()}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
 
     def test_successfully_get_users(
         self, test_client: TestClient, root_token: str, user: User
@@ -264,14 +416,19 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert "items" in body
+        assert body["nextKey"] is None
+        assert isinstance(body["items"], list)
+        assert len(body["items"]) == 1
+        self._assert_user_response_body(body["items"][0], user)
 
     def test_get_users_returns_403_without_token(self, test_client: TestClient):
         response = test_client.get("/api/v1/users")
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_get_users_returns_403_without_read_role(
         self, test_client: TestClient, user_token: str
@@ -281,7 +438,8 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {user_token}"},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_get_users_returns_400_for_invalid_next_key(
         self, test_client: TestClient, root_token: str
@@ -291,7 +449,8 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
-        assert response.status_code == 400
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self._assert_error_response(response, status.HTTP_400_BAD_REQUEST)
 
     def test_successfully_get_users_with_username_filter(
         self, test_client: TestClient, root_token: str, user: User
@@ -301,9 +460,74 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert "items" in body
+        assert body["nextKey"] is None
+        assert isinstance(body["items"], list)
+        assert len(body["items"]) == 1
+        self._assert_user_response_body(body["items"][0], user)
+
+    def test_successfully_get_users_with_email_filter(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        response = test_client.get(
+            f"/api/v1/users?email={user.email}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["nextKey"] is None
+        assert len(body["items"]) == 1
+        self._assert_user_response_body(body["items"][0], user)
+
+    def test_successfully_get_users_with_display_name_filter(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        response = test_client.get(
+            f"/api/v1/users?displayName={user.display_name}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["nextKey"] is None
+        assert len(body["items"]) == 1
+        self._assert_user_response_body(body["items"][0], user)
+
+    def test_get_users_returns_empty_list_when_filter_does_not_match(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.get(
+            "/api/v1/users?username=missing-user",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"items": [], "nextKey": None}
+
+    def test_get_users_returns_422_for_invalid_limit(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.get(
+            "/api/v1/users?limit=0",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        self._assert_error_response(response, status.HTTP_422_UNPROCESSABLE_CONTENT)
+
+    def test_get_users_returns_422_for_unknown_filter(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.get(
+            "/api/v1/users?unknown=value",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        self._assert_error_response(response, status.HTTP_422_UNPROCESSABLE_CONTENT)
 
     def test_successfully_update_user(
         self, test_client: TestClient, root_token: str, user: User
@@ -314,7 +538,7 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {root_token}"},
         )
 
-        assert response.status_code == 204
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_update_user_returns_403_without_token(
         self, test_client: TestClient, user: User
@@ -324,7 +548,8 @@ class TestUserAPI:
             json={"displayName": "Updated Name"},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
 
     def test_update_user_returns_403_without_write_role(
         self, test_client: TestClient, user_token: str, user: User
@@ -335,4 +560,377 @@ class TestUserAPI:
             headers={"Authorization": f"Bearer {user_token}"},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
+
+    def test_update_user_returns_404_for_unknown_user(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.put(
+            f"/api/v1/users/{uuid.uuid4()}",
+            json={"displayName": "Updated Name"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
+
+    def test_update_user_returns_409_for_duplicate_email(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "newuser@squarelabs.hu",
+                "username": "newuser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        response = test_client.put(
+            f"/api/v1/users/{user.id}",
+            json={"email": "newuser@squarelabs.hu"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        self._assert_error_response(response, status.HTTP_409_CONFLICT)
+
+    def test_successfully_validate_user(
+        self,
+        test_client: TestClient,
+        root_token: str,
+        user: User,
+        password: str,
+    ):
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={"password": password},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["id"] == user.id
+        assert body["displayName"] == user.display_name
+        assert body["email"] == user.email
+        assert body["username"] == user.username
+        assert body["roles"] == user.roles
+        assert body["createdAt"] == user.created_at
+        assert body["deletedAt"] == user.deleted_at
+        assert isinstance(body["updatedAt"], str)
+        assert "password" not in body
+
+    def test_successfully_validate_user_updates_last_login_at(
+        self, test_client: TestClient, root_token: str, user: User, password: str
+    ):
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={"password": password},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["lastLoginAt"] is not None
+        assert datetime.fromisoformat(body["lastLoginAt"])
+
+    def test_validate_user_returns_403_without_token(
+        self, test_client: TestClient, user: User
+    ):
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={"password": "some_password"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
+
+    def test_validate_user_returns_403_without_read_role(
+        self, test_client: TestClient, user_token: str, user: User
+    ):
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={"password": "some_password"},
+            headers={"Authorization": f"Bearer {user_token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
+
+    def test_validate_user_returns_404_for_unknown_user_id(
+        self, test_client: TestClient, root_token: str
+    ):
+        response = test_client.post(
+            f"/api/v1/users/{uuid.uuid4()}/validate",
+            json={"password": "some_password"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
+
+    def test_validate_user_returns_400_for_invalid_password(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={"password": "wrong_password"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self._assert_error_response(response, status.HTTP_400_BAD_REQUEST)
+
+    def test_validate_user_returns_422_without_password(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        self._assert_error_response(response, status.HTTP_422_UNPROCESSABLE_CONTENT)
+
+    def test_validate_user_returns_404_for_deleted_user(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        test_client.delete(
+            f"/api/v1/users/{user.id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={"password": "not_so_secure_password"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
+
+    def test_register_user_with_scope_token(
+        self, test_client: TestClient, scope_token: str
+    ):
+        """Test registering a user using scope-based authorization."""
+        response = test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "scopeuser@squarelabs.hu",
+                "username": "scopeuser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {scope_token}"},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert "location" in response.headers
+        assert response.headers["location"].startswith("/users/")
+
+    def test_register_user_normalizes_email_to_lowercase(
+        self, test_client: TestClient, root_token: str
+    ):
+        """Test that registering with uppercase email normalizes to lowercase."""
+        response = test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "MIXEDCASE@SQUARELABS.HU",
+                "username": "mixedcaseuser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        location = response.headers["location"]
+        user_id = location.split("/")[-1]
+
+        # Fetch the user to verify the email was stored lowercase
+        get_response = test_client.get(
+            f"/api/v1/users/{user_id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert get_response.status_code == status.HTTP_200_OK
+        assert get_response.json()["email"] == "mixedcase@squarelabs.hu"
+
+    def test_update_user_returns_409_for_duplicate_username(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        """Test updating a user with a username that belongs to another user."""
+        # First create another user
+        create_response = test_client.post(
+            "/api/v1/users",
+            json={
+                "email": "otheruser@squarelabs.hu",
+                "username": "otheruser",
+                "password": "securepassword123",
+                "confirmPassword": "securepassword123",
+            },
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        # Try updating the original user with the other user's username
+        response = test_client.put(
+            f"/api/v1/users/{user.id}",
+            json={"username": "otheruser"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        self._assert_error_response(response, status.HTTP_409_CONFLICT)
+
+    def test_update_user_does_not_raise_conflict_for_same_email(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        """Test updating a user with their own email does not raise conflict."""
+        response = test_client.put(
+            f"/api/v1/users/{user.id}",
+            json={"email": user.email, "displayName": "Updated Name"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_update_user_does_not_raise_conflict_for_same_username(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        """Test updating a user with their own username does not raise conflict."""
+        response = test_client.put(
+            f"/api/v1/users/{user.id}",
+            json={"username": user.username, "displayName": "Updated Name"},
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_delete_user_returns_404_for_already_deleted_user(
+        self, test_client: TestClient, root_token: str, user: User
+    ):
+        """Test deleting an already soft-deleted user returns 404."""
+        # First delete
+        response = test_client.delete(
+            f"/api/v1/users/{user.id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        # Second delete should fail
+        response = test_client.delete(
+            f"/api/v1/users/{user.id}",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self._assert_error_response(response, status.HTTP_404_NOT_FOUND)
+
+    def test_validate_user_returns_403_with_expired_token(
+        self, test_client: TestClient, expired_root_token: str, user: User
+    ):
+        """Test validate endpoint returns 403 with expired token."""
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={"password": "not_so_secure_password"},
+            headers={"Authorization": f"Bearer {expired_root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
+
+    def test_validate_user_returns_403_with_invalid_signature_token(
+        self, test_client: TestClient, invalid_signature_token: str, user: User
+    ):
+        """Test validate endpoint returns 403 with invalid signature token."""
+        response = test_client.post(
+            f"/api/v1/users/{user.id}/validate",
+            json={"password": "not_so_secure_password"},
+            headers={"Authorization": f"Bearer {invalid_signature_token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self._assert_error_response(response, status.HTTP_403_FORBIDDEN)
+
+    def test_get_users_paginates_with_limit(
+        self,
+        test_client: TestClient,
+        root_token: str,
+        initialize_multiple_users_table,
+    ):
+        """Test that GET /users returns paginated results with nextKey when limit is specified."""
+        response = test_client.get(
+            "/api/v1/users?limit=5",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert "items" in body
+        assert isinstance(body["items"], list)
+        assert len(body["items"]) == 5
+        assert body["nextKey"] is not None
+
+    def test_get_users_paginates_across_multiple_pages(
+        self,
+        test_client: TestClient,
+        root_token: str,
+        initialize_multiple_users_table,
+    ):
+        """Test that GET /users can traverse multiple pages via nextKey."""
+        collected_ids: set[str] = set()
+        next_key: str | None = None
+
+        for _ in range(5):
+            params = "limit=5"
+            if next_key:
+                params += f"&nextKey={next_key}"
+
+            response = test_client.get(
+                f"/api/v1/users?{params}",
+                headers={"Authorization": f"Bearer {root_token}"},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            body = response.json()
+            items = body["items"]
+            assert isinstance(items, list)
+
+            for item in items:
+                assert item["id"] not in collected_ids, "Duplicate user across pages"
+                collected_ids.add(item["id"])
+
+            next_key = body.get("nextKey")
+            if not next_key:
+                break
+
+        # We should have collected between 10 and 15 unique users
+        assert len(collected_ids) >= 5, (
+            "Should have paginated through at least one page"
+        )
+        assert next_key is None or len(collected_ids) >= 10, (
+            "Should have paginated through multiple pages or reached the end"
+        )
+
+    def test_get_users_with_limit_returns_all_when_below_total(
+        self,
+        test_client: TestClient,
+        root_token: str,
+        initialize_multiple_users_table,
+    ):
+        """Test that GET /users with a high limit returns all available users."""
+        response = test_client.get(
+            "/api/v1/users?limit=100",
+            headers={"Authorization": f"Bearer {root_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert isinstance(body["items"], list)
+        assert len(body["items"]) >= 10
+        assert body["nextKey"] is None

@@ -40,3 +40,30 @@ resource "aws_dynamodb_table" "users" {
     projection_type = "ALL"
   }
 }
+
+resource "aws_dynamodb_table" "roles" {
+  name         = "${var.stage}-roles"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  attribute {
+    name = "path"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name = "PathIndex"
+
+    key_schema {
+      attribute_name = "path"
+      key_type = "HASH"
+    }
+
+    projection_type = "ALL"
+  }
+}
