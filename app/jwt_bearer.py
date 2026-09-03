@@ -6,7 +6,7 @@ from fastapi.security.http import (
     HTTPBearer as FastAPIHTTPBearer,
 )
 from fastapi.security.utils import get_authorization_scheme_param
-from jwt import DecodeError, ExpiredSignatureError
+from jwt import DecodeError, ExpiredSignatureError, InvalidAudienceError
 
 from app import settings
 from app.models.jwt import JWTToken
@@ -90,15 +90,33 @@ class JWTBearer:
 
     def _validate_token(self, token: str) -> bool:
         try:
-            self.decoded_token = JWTToken(
-                **jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+            claims = jwt.decode(
+                token,
+                settings.jwt_secret,
+                algorithms=["HS256"],
             )
+            self._validate_audience(claims)
 
+            self.decoded_token = JWTToken(**claims)
             return True
         except DecodeError as err:
             logger.exception(f"Error occurred during token decoding {err=}")
         except ExpiredSignatureError as err:
             logger.exception(f"Expired signature {err=}")
+        except InvalidAudienceError as err:
+            logger.warning(f"Invalid token audience {err=}")
 
         self.decoded_token = None
         return False
+
+    @staticmethod
+    def _validate_audience(claims: dict) -> None:
+        # Tokens issued before the identity provider started stamping the aud
+        # claim carry no audience; only reject the ones that claim a different
+        # audience than this service.
+        audience = claims.get("aud")
+        expected_audience = f"{settings.stage}-{settings.app_name}"
+        if audience is not None and audience != expected_audience:
+            raise InvalidAudienceError(
+                f"Expected audience {expected_audience!r}, got {audience!r}"
+            )
