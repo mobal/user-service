@@ -19,7 +19,7 @@ resource "aws_lambda_function" "fastapi" {
 
   environment {
     variables = {
-      APP_NAME                             = local.app_name
+      APP_NAME                             = var.app_name
       DEBUG                                = var.debug
       DEFAULT_TIMEZONE                     = var.default_timezone
       JWT_SECRET_SSM_PARAM_NAME            = var.jwt_secret_ssm_param_name
