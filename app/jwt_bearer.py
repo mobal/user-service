@@ -100,6 +100,10 @@ class JWTBearer:
                 settings.jwt_secret,
                 algorithms=["HS256"],
                 audience=f"{settings.stage}-{settings.app_name}",
+                # PyJWT >= 2.10 validates exp/iat only when the claim is
+                # present; require what the JWTToken model needs so tokens
+                # missing them fail here instead of crashing the model.
+                options={"require": ["exp", "iat", "jti", "sub"]},
             )
 
             self.decoded_token = JWTToken(**claims)
