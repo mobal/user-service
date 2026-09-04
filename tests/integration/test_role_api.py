@@ -61,6 +61,7 @@ class TestRoleAPI:
         payload = {
             "exp": int((now + timedelta(hours=1)).timestamp()),
             "iat": int(now.timestamp()),
+            "aud": f"{os.getenv('STAGE')}-{os.getenv('APP_NAME')}",
             "jti": str(uuid.uuid4()),
             "sub": "root-user",
             "user": {"roles": ["roles:read", "roles:write"]},
@@ -75,6 +76,7 @@ class TestRoleAPI:
         payload = {
             "exp": int((now + timedelta(hours=1)).timestamp()),
             "iat": int(now.timestamp()),
+            "aud": f"{os.getenv('STAGE')}-{os.getenv('APP_NAME')}",
             "jti": str(uuid.uuid4()),
             "sub": "regular-user",
             "user": {"roles": []},

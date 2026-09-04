@@ -43,6 +43,7 @@ class TestUserAPI:
         payload = {
             "exp": int((now + timedelta(hours=1)).timestamp()),
             "iat": int(now.timestamp()),
+            "aud": f"{os.getenv('STAGE')}-{os.getenv('APP_NAME')}",
             "jti": str(uuid.uuid4()),
             "sub": "root-user",
             "user": {"roles": ["users:read", "users:write"]},
@@ -57,6 +58,7 @@ class TestUserAPI:
         payload = {
             "exp": int((now + timedelta(hours=1)).timestamp()),
             "iat": int(now.timestamp()),
+            "aud": f"{os.getenv('STAGE')}-{os.getenv('APP_NAME')}",
             "jti": str(uuid.uuid4()),
             "sub": "regular-user",
             "user": {"roles": []},
@@ -71,6 +73,7 @@ class TestUserAPI:
         payload = {
             "exp": int((now + timedelta(hours=1)).timestamp()),
             "iat": int(now.timestamp()),
+            "aud": f"{os.getenv('STAGE')}-{os.getenv('APP_NAME')}",
             "jti": str(uuid.uuid4()),
             "sub": "scope-user",
             "scope": "users:read users:write",
@@ -85,6 +88,7 @@ class TestUserAPI:
         payload = {
             "exp": int((now - timedelta(minutes=5)).timestamp()),
             "iat": int((now - timedelta(hours=1)).timestamp()),
+            "aud": f"{os.getenv('STAGE')}-{os.getenv('APP_NAME')}",
             "jti": str(uuid.uuid4()),
             "sub": "expired-root-user",
             "user": {"roles": ["root"]},
@@ -99,6 +103,7 @@ class TestUserAPI:
         payload = {
             "exp": int((now + timedelta(hours=1)).timestamp()),
             "iat": int(now.timestamp()),
+            "aud": f"{os.getenv('STAGE')}-{os.getenv('APP_NAME')}",
             "jti": str(uuid.uuid4()),
             "sub": "root-user-invalid-signature",
             "user": {"roles": ["root"]},
