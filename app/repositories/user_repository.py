@@ -37,6 +37,29 @@ class UserRepository:
             condition = Attr(key).eq(value)
             filter_expression = filter_expression & condition
 
+        response = self._scan(filter_expression, limit, exclusive_start_key)
+        users = [User(**item) for item in response.get("Items", [])]
+        return users, response.get("LastEvaluatedKey")
+
+    def get_users(
+        self, limit: int, exclusive_start_key: dict[str, Any] | None = None
+    ) -> tuple[list[User], dict[str, Any] | None]:
+        response = self._scan(self._ACTIVE_FILTER, limit, exclusive_start_key)
+        users = [User(**item) for item in response.get("Items", [])]
+        return users, response.get("LastEvaluatedKey")
+
+    def _scan(
+        self,
+        filter_expression,
+        limit: int,
+        exclusive_start_key: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Scan a page of active users, skipping pages the soft-delete filter empties.
+
+        DynamoDB applies ``Limit`` to the items it *evaluates* before the filter
+        expression, so a page can come back empty while matching users still
+        exist further in scan order; continue from the cursor in that case.
+        """
         scan_kwargs: dict[str, Any] = {
             "FilterExpression": filter_expression,
             "Limit": limit,
@@ -45,22 +68,10 @@ class UserRepository:
             scan_kwargs["ExclusiveStartKey"] = exclusive_start_key
 
         response = self._table.scan(**scan_kwargs)
-        users = [User(**item) for item in response.get("Items", [])]
-        return users, response.get("LastEvaluatedKey")
-
-    def get_users(
-        self, limit: int, exclusive_start_key: dict[str, Any] | None = None
-    ) -> tuple[list[User], dict[str, Any] | None]:
-        scan_kwargs: dict[str, Any] = {
-            "FilterExpression": self._ACTIVE_FILTER,
-            "Limit": limit,
-        }
-        if exclusive_start_key:
-            scan_kwargs["ExclusiveStartKey"] = exclusive_start_key
-
-        response = self._table.scan(**scan_kwargs)
-        users = [User(**item) for item in response.get("Items", [])]
-        return users, response.get("LastEvaluatedKey")
+        while not response.get("Items") and response.get("LastEvaluatedKey"):
+            scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+            response = self._table.scan(**scan_kwargs)
+        return response
 
     def update_user(
         self,

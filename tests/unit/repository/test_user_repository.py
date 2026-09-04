@@ -343,3 +343,70 @@ class TestUserRepository:
         item = user_repository.get_by_username(user.username)
 
         assert item is None
+
+    def test_get_users_skips_scan_pages_holding_only_soft_deleted_users(
+        self, users_table, user: User, user_repository: UserRepository
+    ):
+        """Scan Limit applies before the soft-delete filter, so a page can come
+        back empty while active users exist later in scan order; the repository
+        must continue from the cursor instead of returning the empty page.
+        """
+        # Soft-delete the pre-seeded row and add rows whose ids sort so the
+        # first scan page contains nothing but the deleted user.
+        users_table.update_item(
+            Key={"id": user.id},
+            UpdateExpression="SET deleted_at = :deleted_at",
+            ExpressionAttributeValues={":deleted_at": datetime.now(UTC).isoformat()},
+        )
+        deleted_user = user.model_copy(update={"id": "0-deleted"})
+        users_table.put_item(Item=deleted_user.model_dump())
+        users_table.update_item(
+            Key={"id": "0-deleted"},
+            UpdateExpression="SET deleted_at = :deleted_at",
+            ExpressionAttributeValues={":deleted_at": datetime.now(UTC).isoformat()},
+        )
+        first_active = user.model_copy(
+            update={
+                "id": "1-active",
+                "username": "first-active",
+                "email": "first@squarelabs.hu",
+            }
+        )
+        users_table.put_item(Item=first_active.model_dump())
+        second_active = user.model_copy(
+            update={
+                "id": "2-active",
+                "username": "second-active",
+                "email": "second@squarelabs.hu",
+            }
+        )
+        users_table.put_item(Item=second_active.model_dump())
+
+        users, next_key = user_repository.get_users(limit=1)
+
+        assert [u.id for u in users] == ["1-active"]
+        assert next_key is not None
+
+    def test_get_users_returns_empty_page_only_after_scan_is_exhausted(
+        self, users_table, user: User, user_repository: UserRepository
+    ):
+        """With every row soft-deleted, the skip loop must terminate with an
+        empty result and no cursor instead of scanning forever.
+        """
+        users_table.update_item(
+            Key={"id": user.id},
+            UpdateExpression="SET deleted_at = :deleted_at",
+            ExpressionAttributeValues={":deleted_at": datetime.now(UTC).isoformat()},
+        )
+        deleted_user = user.model_copy(update={"id": "0-deleted"})
+        users_table.put_item(Item=deleted_user.model_dump())
+        users_table.update_item(
+            Key={"id": "0-deleted"},
+            UpdateExpression="SET deleted_at = :deleted_at",
+            ExpressionAttributeValues={":deleted_at": datetime.now(UTC).isoformat()},
+        )
+
+        users, next_key = user_repository.get_users(limit=1)
+
+        assert users == []
+        assert next_key is None
