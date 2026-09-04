@@ -1,0 +1,2150 @@
+{
+  "info": {
+    "name": "Users Service",
+    "description": "End-to-end API collection for the user-service (FastAPI resource server on AWS Lambda + DynamoDB).\n\n## Variables\n\n| Variable | Default | Description |\n|----------|---------|-------------|\n| `baseUrl` | `http://localhost:8080` | Local app base URL. Set to the deployed API Gateway URL (e.g. `https://<api-id>.execute-api.<region>.amazonaws.com`) when testing a deployed environment. |\n| `stage` | `local` | Deployment stage; the SSM secret and DynamoDB tables are stage-prefixed. |\n| `appName` | `user-service` | Application name; combined with `stage` to form the JWT audience. |\n| `audience` | `local-user-service` | Expected JWT audience (`{stage}-{appName}`). Tokens are minted with this audience by the collection pre-request script. |\n| `jwtSecret` | `jwt-secret` | HS256 signing secret. Must match the SSM secret seeded by `scripts/init_localstack.py` (`/local/secrets/jwt-secret`) and, in production, the shared auth-service secret. |\n| `rootToken` | *(empty)* | Admin token carrying the seeded `root` role — minted automatically before every request. |\n| `readerToken` | *(empty)* | Token with only the `users:read roles:read` scope — minted automatically. |\n| `expiredToken` | *(empty)* | Token whose `exp` is in the past — minted automatically. |\n| `wrongAudienceToken` | *(empty)* | Token signed for `dev-user-service` — minted automatically. |\n| `wrongSignatureToken` | *(empty)* | Token signed with a different secret — minted automatically. |\n| `unknownRoleToken` | *(empty)* | Token whose only role cannot be resolved to permissions — minted automatically. |\n| `userId` | *(empty)* | Latest created user id — set automatically from the `Location` header. |\n| `roleId` | *(empty)* | Latest created role id — set automatically from the `Location` header. |\n| `usersNextKey` | *(empty)* | Pagination cursor for the users listing. |\n| `rolesNextKey` | *(empty)* | Pagination cursor for the roles listing. |\n\n## Notes\n\n- The user-service is a **resource server**: it never issues tokens. The collection pre-request script therefore mints HS256 JWTs locally (CryptoJS) against the shared `jwtSecret`.\n- All endpoints under `/api/v1` require a `Bearer` access token with the permissions granted via the token `scope` and/or role resolution (`POST /health` does not).\n- The admin (`root`) token resolves its permissions through the seeded `root` role row in the `{stage}-roles` table, exercising role-inheritance resolution on every request.\n- Response bodies are camelCase (e.g. `displayName`, `createdAt`, `nextKey`).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Liveness probe — no authentication required. Returns {\"status\": \"healthy\"}."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "pm.test('reports healthy status', () => {",
+                  "  pm.expect(pm.response.json()).to.eql({ status: 'healthy' });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Create user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"root@example.com\",\n    \"username\": \"root\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Registers a user. The test script stores the created user id and credentials in collection variables so later requests can address the record."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 201', () => pm.response.to.have.status(201));",
+                  "const location = pm.response.headers.get('Location');",
+                  "pm.test('locates the new user', () => {",
+                  "  pm.expect(location).to.match(/^\\/users\\/[0-9a-f-]+$/);",
+                  "});",
+                  "const userId = location ? location.split('/').pop() : null;",
+                  "if (userId) { pm.collectionVariables.set('userId', userId); }",
+                  "pm.collectionVariables.set('e2eUserEmail', 'root@example.com');",
+                  "pm.collectionVariables.set('e2eUsername', 'root');",
+                  "pm.collectionVariables.set('e2ePassword', 'e2e-password');"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create user — duplicate email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"root@example.com\",\n    \"username\": \"root-clone\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Emails are unique; re-registering an existing email must fail with a 409."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 409', () => pm.response.to.have.status(409));",
+                  "pm.test('reports the email conflict', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('already exists');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create user — duplicate username",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"another@example.com\",\n    \"username\": \"root\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Usernames are unique as well; re-registering an existing username must fail with a 409."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 409', () => pm.response.to.have.status(409));",
+                  "pm.test('reports the username conflict', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('already exists');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create user — passwords do not match",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"mismatch@example.com\",\n    \"username\": \"mismatch\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"different-password\"\n}"
+            },
+            "description": "The confirmPassword field must match password; otherwise the request is rejected with a structured 422 validation error."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 422', () => pm.response.to.have.status(422));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns a structured validation error', () => {",
+                  "  pm.expect(body.error).to.eql('Validation Error');",
+                  "  pm.expect(body.errors).to.be.an('array').that.is.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create user — invalid email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"not-an-email\",\n    \"username\": \"invalid-mail\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Malformed emails must fail pydantic EmailStr validation with a 422."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 422', () => pm.response.to.have.status(422));",
+                  "pm.test('returns a structured validation error', () => {",
+                  "  pm.expect(pm.response.json().error).to.eql('Validation Error');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create user — missing required fields",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "description": "An empty request body is rejected with 422 and a non-empty errors list."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 422', () => pm.response.to.have.status(422));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns a structured validation error', () => {",
+                  "  pm.expect(body.error).to.eql('Validation Error');",
+                  "  pm.expect(body.errors).to.be.an('array').that.is.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create second user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"second@example.com\",\n    \"username\": \"second\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "A second user used by the duplicate-email update case and the listing tests below."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('secondUserEmail', 'second@example.com');",
+                  "pm.collectionVariables.set('secondUsername', 'second');"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get user by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}"]
+            },
+            "description": "Reads the created user back. Passwords are never serialized."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns the created user', () => {",
+                  "  pm.expect(body.id).to.eql(pm.collectionVariables.get('userId'));",
+                  "  pm.expect(body.email).to.eql(pm.collectionVariables.get('e2eUserEmail'));",
+                  "  pm.expect(body.username).to.eql(pm.collectionVariables.get('e2eUsername'));",
+                  "  pm.expect(body.roles).to.eql([]);",
+                  "});",
+                  "pm.test('never exposes the password hash', () => {",
+                  "  pm.expect(body).to.not.have.property('password');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get user — unknown id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/00000000-0000-0000-0000-000000000000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "00000000-0000-0000-0000-000000000000"]
+            },
+            "description": "Reading an unknown user must fail with a 404."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 404', () => pm.response.to.have.status(404));",
+                  "pm.test('reports the user as not found', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('not found');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Update user",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"displayName\": \"Root Admin\",\n    \"username\": \"root_admin\"\n}"
+            },
+            "description": "Updates mutable fields (displayName, username) with a 204 response."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get updated user",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}"]
+            },
+            "description": "Confirms the previous update was persisted."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('reflects the update', () => {",
+                  "  pm.expect(body.displayName).to.eql('Root Admin');",
+                  "  pm.expect(body.username).to.eql('root_admin');",
+                  "  pm.expect(body.email).to.eql(pm.collectionVariables.get('e2eUserEmail'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Update user — duplicate email",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"second@example.com\"\n}"
+            },
+            "description": "Moving a user onto another user's email must fail with a 409."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 409', () => pm.response.to.have.status(409));",
+                  "pm.test('reports the email conflict', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('already exists');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Update user — unknown id",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/00000000-0000-0000-0000-000000000000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "00000000-0000-0000-0000-000000000000"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"displayName\": \"Ghost\"\n}"
+            },
+            "description": "Updating an unknown user must fail with a 404."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 404', () => pm.response.to.have.status(404));",
+                  "pm.test('reports the user as not found', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('not found');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Validate user credentials",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/validate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "validate"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"password\": \"e2e-password\"\n}"
+            },
+            "description": "Verifies the Argon2 password hash and refreshes lastLoginAt on success."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('authenticates the user', () => {",
+                  "  pm.expect(body.id).to.eql(pm.collectionVariables.get('userId'));",
+                  "  pm.expect(body.lastLoginAt).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Validate user — wrong password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/validate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "validate"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"password\": \"definitely-wrong\"\n}"
+            },
+            "description": "Wrong passwords must yield a generic 400 without leaking whether the user exists."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 400', () => pm.response.to.have.status(400));",
+                  "pm.test('rejects the password', () => {",
+                  "  pm.expect(pm.response.json().error).to.eql('Invalid password');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Delete user",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}"]
+            },
+            "description": "Soft-deletes the user (sets deletedAt) with a 204 response."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get deleted user",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}"]
+            },
+            "description": "Soft-deleted users are filtered out of every read path."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 404', () => pm.response.to.have.status(404));",
+                  "pm.test('reports the user as not found', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('not found');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create pagination user A",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"alpha@example.com\",\n    \"username\": \"alpha\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Seed user for the pagination and filter cases below."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create pagination user B",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"beta@example.com\",\n    \"username\": \"beta\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Seed user for the pagination and filter cases below."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List users — first page",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users?limit=2",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "2"
+                }
+              ]
+            },
+            "description": "Paginates the users table (limit 2 over 3 active users; soft-deleted records still consume scan capacity, so the split is not deterministic). The test script stores the nextKey cursor and the usernames seen so far."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns a first page with a cursor', () => {",
+                  "  pm.expect(body.items.length).to.be.gte(1).and.lte(2);",
+                  "  pm.expect(body.nextKey).to.be.a('string').and.not.empty;",
+                  "});",
+                  "if (body.nextKey) { pm.collectionVariables.set('usersNextKey', body.nextKey); }",
+                  "pm.collectionVariables.set('usersSeen', body.items.map(i => i.username).sort().join(','));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List users — second page",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users?limit=2&nextKey={{usersNextKey}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "2"
+                },
+                {
+                  "key": "nextKey",
+                  "value": "{{usersNextKey}}"
+                }
+              ]
+            },
+            "description": "Walks the next page via the stored cursor; together the pages must cover every active user exactly once (whether the trailing scan reports a cursor or not is stack-dependent, so coverage is the assertion)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const seen = pm.collectionVariables.get('usersSeen') || '';",
+                  "const usernames = [...seen.split(',').filter(Boolean), ...body.items.map(i => i.username)].sort();",
+                  "pm.test('both pages cover every active user exactly once', () => {",
+                  "  pm.expect(body.items.length).to.be.gte(1);",
+                  "  pm.expect(usernames).to.eql(['alpha', 'beta', 'second']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List users — invalid next key",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users?nextKey=asdasdasd",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"],
+              "query": [
+                {
+                  "key": "nextKey",
+                  "value": "asdasdasd"
+                }
+              ]
+            },
+            "description": "Malformed pagination cursors must fail with a 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 400', () => pm.response.to.have.status(400));",
+                  "pm.test('rejects the pagination key', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('Invalid pagination key');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List users — filter by username",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users?username=second",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"],
+              "query": [
+                {
+                  "key": "username",
+                  "value": "second"
+                }
+              ]
+            },
+            "description": "Lists can be filtered by username."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns only the matching user', () => {",
+                  "  pm.expect(body.items).to.have.lengthOf(1);",
+                  "  pm.expect(body.items[0].username).to.eql('second');",
+                  "  pm.expect(body.nextKey).to.be.null;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List users — filter with no match",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users?displayName=nobody-here",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"],
+              "query": [
+                {
+                  "key": "displayName",
+                  "value": "nobody-here"
+                }
+              ]
+            },
+            "description": "Filters without matches return an empty page."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "pm.test('returns an empty page', () => {",
+                  "  pm.expect(pm.response.json()).to.eql({ items: [], nextKey: null });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Roles",
+      "item": [
+        {
+          "name": "Create role",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"id\": \"admin\",\n    \"path\": \"admin\",\n    \"description\": \"Administrator\",\n    \"permissions\": [\n        \"users:read\",\n        \"users:write\"\n    ]\n}"
+            },
+            "description": "Creates the top-level admin role. The test script stores its id from the Location header."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 201', () => pm.response.to.have.status(201));",
+                  "const location = pm.response.headers.get('Location');",
+                  "pm.test('locates the new role', () => {",
+                  "  pm.expect(location).to.match(/^\\/roles\\/admin$/);",
+                  "});",
+                  "if (location) { pm.collectionVariables.set('roleId', location.split('/').pop()); }"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create child role",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"id\": \"manager\",\n    \"path\": \"admin#manager\",\n    \"description\": \"Manager\",\n    \"permissions\": [\n        \"roles:read\"\n    ]\n}"
+            },
+            "description": "Role paths encode the hierarchy (admin#manager); the parent must exist. The test script stores the child role id."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 201', () => pm.response.to.have.status(201));",
+                  "pm.test('locates the new role', () => {",
+                  "  pm.expect(pm.response.headers.get('Location')).to.eql('/roles/manager');",
+                  "});",
+                  "pm.collectionVariables.set('childRoleId', 'manager');"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create role — missing parent",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"id\": \"member\",\n    \"path\": \"ghost#member\",\n    \"description\": \"Member\",\n    \"permissions\": []\n}"
+            },
+            "description": "Nested roles require their ancestors to exist already."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 400', () => pm.response.to.have.status(400));",
+                  "pm.test('reports the missing parent', () => {",
+                  "  pm.expect(pm.response.json().error).to.include(\"Parent role with path 'ghost'\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create role — path must end with the role id",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"id\": \"member\",\n    \"path\": \"admin#member2\",\n    \"description\": \"Member\",\n    \"permissions\": []\n}"
+            },
+            "description": "The last path segment must equal the role id."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 400', () => pm.response.to.have.status(400));",
+                  "pm.test('rejects the mismatched path', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('must end with the role id');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create role — empty path segment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"id\": \"staff\",\n    \"path\": \"admin##staff\",\n    \"description\": \"Staff\",\n    \"permissions\": []\n}"
+            },
+            "description": "Path segments are #-separated and must all be non-empty."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 400', () => pm.response.to.have.status(400));",
+                  "pm.test('rejects the empty segment', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('non-empty');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get role by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles/{{roleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles", "{{roleId}}"]
+            },
+            "description": "Reads the admin role back; a top-level role has no inherited roles."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns the role', () => {",
+                  "  pm.expect(body.id).to.eql('admin');",
+                  "  pm.expect(body.path).to.eql('admin');",
+                  "  pm.expect(body.permissions).to.eql(['users:read', 'users:write']);",
+                  "  pm.expect(body.inheritedRoles).to.eql([]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get child role by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles/{{childRoleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles", "{{childRoleId}}"]
+            },
+            "description": "Reads the child role back; its ancestors are listed under inheritedRoles."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('resolves the inherited role', () => {",
+                  "  pm.expect(body.id).to.eql('manager');",
+                  "  pm.expect(body.path).to.eql('admin#manager');",
+                  "  pm.expect(body.inheritedRoles).to.have.lengthOf(1);",
+                  "  pm.expect(body.inheritedRoles[0].id).to.eql('admin');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get role by name",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles/name/manager",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles", "name", "manager"]
+            },
+            "description": "Roles can also be resolved by name (the last path segment)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns the role with inheritance', () => {",
+                  "  pm.expect(body.id).to.eql('manager');",
+                  "  pm.expect(body.inheritedRoles).to.have.lengthOf(1);",
+                  "  pm.expect(body.inheritedRoles[0].id).to.eql('admin');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get role by name — unknown",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles/name/ghost",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles", "name", "ghost"]
+            },
+            "description": "Unknown role names must fail with a 404."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 404', () => pm.response.to.have.status(404));",
+                  "pm.test('reports the role as not found', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('not found');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get role by id — unknown",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles/does-not-exist",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles", "does-not-exist"]
+            },
+            "description": "Unknown role ids must fail with a 404."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 404', () => pm.response.to.have.status(404));",
+                  "pm.test('reports the role as not found', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('not found');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Update role",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles/{{childRoleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles", "{{childRoleId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"description\": \"Senior Manager\",\n    \"permissions\": [\n        \"roles:read\",\n        \"roles:write\"\n    ]\n}"
+            },
+            "description": "Updates role metadata with a 204 response."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get updated role",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles/{{childRoleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles", "{{childRoleId}}"]
+            },
+            "description": "Confirms the previous update was persisted."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('reflects the update', () => {",
+                  "  pm.expect(body.description).to.eql('Senior Manager');",
+                  "  pm.expect(body.permissions).to.eql(['roles:read', 'roles:write']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List roles — first page",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles?limit=2",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "2"
+                }
+              ]
+            },
+            "description": "Paginates the roles table (root, admin, manager). The test script stores the nextKey cursor."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns the first page with a cursor', () => {",
+                  "  pm.expect(body.items).to.have.lengthOf(2);",
+                  "  pm.expect(body.nextKey).to.be.a('string').and.not.empty;",
+                  "});",
+                  "if (body.nextKey) { pm.collectionVariables.set('rolesNextKey', body.nextKey); }"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List roles — second page",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles?limit=2&next_key={{rolesNextKey}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "2"
+                },
+                {
+                  "key": "next_key",
+                  "value": "{{rolesNextKey}}"
+                }
+              ]
+            },
+            "description": "Walks the next page via the stored cursor (the roles endpoint reads its cursor from next_key); the last page carries no nextKey."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('returns the trailing page without a cursor', () => {",
+                  "  pm.expect(body.items).to.have.lengthOf(1);",
+                  "  pm.expect(body.nextKey).to.be.null;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Delete role",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles/{{childRoleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles", "{{childRoleId}}"]
+            },
+            "description": "Soft-deletes the manager role with a 204 response."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get deleted role",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{rootToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles/{{childRoleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles", "{{childRoleId}}"]
+            },
+            "description": "Soft-deleted roles are filtered out of every read path."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 404', () => pm.response.to.have.status(404));",
+                  "pm.test('reports the role as not found', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('not found');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Create user — no token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"unauthenticated@example.com\",\n    \"username\": \"unauthenticated\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Requests without an Authorization header are rejected immediately with 403."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 403', () => pm.response.to.have.status(403));",
+                  "pm.test('rejects the request as unauthenticated', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('Not authenticated');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create user — malformed token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer not-a-jwt"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"malformed@example.com\",\n    \"username\": \"malformed\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Non-JWT bearer credentials must fail token decoding with a 403."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 403', () => pm.response.to.have.status(403));",
+                  "pm.test('rejects the request as unauthenticated', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('Not authenticated');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create user — Basic scheme",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Basic dXNlcjpwYXNz"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"basic@example.com\",\n    \"username\": \"basic\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Only the Bearer scheme is accepted; Basic credentials are rejected with 403."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create user — wrong signature",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{wrongSignatureToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"forged@example.com\",\n    \"username\": \"forged\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Tokens signed with a different secret must fail signature verification with a 403."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 403', () => pm.response.to.have.status(403));",
+                  "pm.test('rejects the forged token', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('Not authenticated');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create user — expired token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{expiredToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"expired@example.com\",\n    \"username\": \"expired\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Expired tokens must be rejected with a 403."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 403', () => pm.response.to.have.status(403));",
+                  "pm.test('rejects the expired token', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('Not authenticated');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create user — wrong audience",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{wrongAudienceToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"wrong-audience@example.com\",\n    \"username\": \"wrongaudience\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Tokens minted for another audience (e.g. dev-user-service) must be rejected with a 403."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 403', () => pm.response.to.have.status(403));",
+                  "pm.test('rejects the wrong-audience token', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('Not authenticated');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create user — read scope only",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{readerToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"reader@example.com\",\n    \"username\": \"reader\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "Write endpoints require users:write; a read-only token must fail with 403 Insufficient permissions."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 403', () => pm.response.to.have.status(403));",
+                  "pm.test('rejects the request as unauthorized', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('Insufficient permissions');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create role — read scope only",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{readerToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "roles"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"id\": \"intruder\",\n    \"path\": \"intruder\",\n    \"description\": \"Intruder\",\n    \"permissions\": []\n}"
+            },
+            "description": "Role creation requires roles:write; a read-only token must fail with 403 Insufficient permissions."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 403', () => pm.response.to.have.status(403));",
+                  "pm.test('rejects the request as unauthorized', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('Insufficient permissions');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create user — unresolvable role only",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{unknownRoleToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"ghost-role@example.com\",\n    \"username\": \"ghostrole\",\n    \"password\": \"e2e-password\",\n    \"confirmPassword\": \"e2e-password\"\n}"
+            },
+            "description": "A role that resolves to no permissions grants nothing; the request must fail with 403 Insufficient permissions."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 403', () => pm.response.to.have.status(403));",
+                  "pm.test('rejects the request as unauthorized', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('Insufficient permissions');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "List users — read-only token",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{readerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users?limit=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "Scope-based authorization also unlocks read access without any role row."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('responds with 200', () => pm.response.to.have.status(200));",
+                  "pm.test('returns a page of users', () => {",
+                  "  pm.expect(pm.response.json().items).to.be.an('array').that.is.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "exec": [
+          "// The user-service is a resource server: it never issues tokens itself.",
+          "// Mint the HS256 JWTs used across the collection against the shared",
+          "// secret (the SSM parameter seeded by scripts/init_localstack.py).",
+          "// Wrapped in an IIFE: Newman reuses one sandbox for collection-level",
+          "// scripts, so top-level const declarations would collide on reruns.",
+          "(function () {",
+          "  const CryptoJS = require('crypto-js');",
+          "  const jwtSecret = pm.collectionVariables.get('jwtSecret');",
+          "  const audience = pm.collectionVariables.get('audience');",
+          "  const nowSec = Math.floor(Date.now() / 1000);",
+          "",
+          "  function b64url(wordArray) {",
+          "    return CryptoJS.enc.Base64.stringify(wordArray)",
+          "      .replace(/=+$/, '')",
+          "      .replace(/\\+/g, '-')",
+          "      .replace(/\\//g, '_');",
+          "  }",
+          "",
+          "  function signJwt(payload, secret) {",
+          "    secret = secret || jwtSecret;",
+          "    const header = b64url(CryptoJS.enc.Utf8.parse(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));",
+          "    const body = b64url(CryptoJS.enc.Utf8.parse(JSON.stringify(payload)));",
+          "    const signature = b64url(CryptoJS.HmacSHA256(header + '.' + body, secret));",
+          "    return header + '.' + body + '.' + signature;",
+          "  }",
+          "",
+          "  function claims(overrides) {",
+          "    return Object.assign({",
+          "      exp: nowSec + 3600,",
+          "      iat: nowSec,",
+          "      iss: 'auth-service',",
+          "      aud: audience,",
+          "      jti: b64url(CryptoJS.lib.WordArray.random(12)),",
+          "      sub: 'e2e-user'",
+          "    }, overrides);",
+          "  }",
+          "",
+          "  // Root role: resolved to permissions through the seeded root role row.",
+          "  pm.collectionVariables.set('rootToken', signJwt(claims({",
+          "    sub: 'root-user', user: { roles: ['root'] }",
+          "  })));",
+          "  // Read-only scope token: no role claim at all.",
+          "  pm.collectionVariables.set('readerToken', signJwt(claims({",
+          "    sub: 'reader-user', scope: 'users:read roles:read'",
+          "  })));",
+          "  // Expired token (exp is five minutes in the past).",
+          "  pm.collectionVariables.set('expiredToken', signJwt(claims({",
+          "    sub: 'expired-user', exp: nowSec - 300, iat: nowSec - 3600, user: { roles: ['root'] }",
+          "  })));",
+          "  // Token minted for another stage's audience.",
+          "  pm.collectionVariables.set('wrongAudienceToken', signJwt(claims({",
+          "    sub: 'wrong-aud-user', aud: 'dev-user-service', user: { roles: ['root'] }",
+          "  })));",
+          "  // Token signed with a different secret.",
+          "  pm.collectionVariables.set('wrongSignatureToken', signJwt(claims({",
+          "    sub: 'wrong-sig-user', user: { roles: ['root'] }",
+          "  }), 'another-secret'));",
+          "  // Token whose role resolves to no permissions.",
+          "  pm.collectionVariables.set('unknownRoleToken', signJwt(claims({",
+          "    sub: 'ghost-user', user: { roles: ['ghost-role'] }",
+          "  })));",
+          "})();"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "stage",
+      "value": "local",
+      "type": "string"
+    },
+    {
+      "key": "appName",
+      "value": "user-service",
+      "type": "string"
+    },
+    {
+      "key": "audience",
+      "value": "local-user-service",
+      "type": "string"
+    },
+    {
+      "key": "jwtSecret",
+      "value": "jwt-secret",
+      "type": "string"
+    },
+    {
+      "key": "rootToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "readerToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "expiredToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "wrongAudienceToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "wrongSignatureToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "unknownRoleToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "roleId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "childRoleId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "usersNextKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "usersSeen",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "rolesNextKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "e2eUserEmail",
+      "value": "root@example.com",
+      "type": "string"
+    },
+    {
+      "key": "e2eUsername",
+      "value": "root",
+      "type": "string"
+    },
+    {
+      "key": "e2ePassword",
+      "value": "e2e-password",
+      "type": "string"
+    },
+    {
+      "key": "secondUserEmail",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

@@ -9,8 +9,10 @@ RUN apk add --no-cache gcc musl-dev libffi-dev curl
 
 COPY pyproject.toml uv.lock ./
 
-ADD https://astral.sh/uv/install.sh /uv-installer.sh
-RUN sh /uv-installer.sh && rm /uv-installer.sh \
+# uv via pip, not the astral installer: the installer drops uv into
+# ~/.local/bin without putting it on PATH for sh -c shells (matches
+# auth-service's runtime image).
+RUN pip install --no-cache-dir uv \
     && uv sync --frozen --no-dev
 
 COPY . .
